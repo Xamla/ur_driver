@@ -53,8 +53,9 @@ local JOINT_VELOCITY_LIMITS = torch.Tensor({
 local URDriver = torch.class('URDriver')
 
 
-function URDriver:__init(cfg, logger)
+function URDriver:__init(cfg, logger, heartbeat)
   self.logger = logger or ur5.DEFAULT_LOGGER
+  self.heartbeat = heartbeat
 
   -- apply configuration
   self.hostname = cfg.hostname or DEFAULT_HOSTNAME
@@ -464,6 +465,11 @@ end
 
 
 function URDriver:spin()
+  if self.realtimeState:isRobotReady() then
+    self.heartbeat:updateStatus(self.heartbeat.GO, "")
+  else
+    self.heartbeat:updateStatus(self.heartbeat.INTERNAL_ERROR, "Robot is not ready.")
+  end
 
   if self.realtimeStream:getState() == RealtimeStreamState.Disconnected then
     self.logger.info('RealtimeStream not connected, trying to connect...')

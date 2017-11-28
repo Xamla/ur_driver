@@ -7,7 +7,7 @@ require 'ros.actionlib.ActionServer'
 local GoalStatus = require 'ros.actionlib.GoalStatus'
 local actionlib = ros.actionlib
 local ur5 = require 'ur5_env'
-
+local xamal_sysmon = require 'xamla_sysmon'
 
 local nh                        -- ros node handle
 local jointStatePublisher       -- joint state publisher
@@ -228,7 +228,7 @@ local function posTrajController_Command(msg, header, subscriber)
     return
   end
 
-  ros.DEBUG('posTrajController_Command: Trajectory with %d points received.', time:nElement())
+  ros.WARN('posTrajController_Command: Trajectory with %d points received.', time:nElement())
 
   local traj = {
     maxBuffering = 2,
@@ -283,7 +283,8 @@ end
 
 
 local function startPosTrajControllerListener(controllerName)
-  local commandTopic = string.format('%s/command', controllerName)
+  --local commandTopic = string.format('%s/joint_command', controllerName)
+  local commandTopic = 'joint_command'
   posTrajControllerCommandSub = nh:subscribe(commandTopic, 'trajectory_msgs/JointTrajectory', 1)
   posTrajControllerCommandSub:registerCallback(posTrajController_Command)
 end
@@ -331,20 +332,16 @@ local function main()
   cmd:option('-ring-size',            64,                 'robot side ring buffer ring-size')
   cmd:option('-script-template',      'driver.urscript',  'filename of urscript template executed on robot')
   cmd:option('-max-idle-cycles',      250,                'number of idle cycles before driver_proc shutdown')
-  cmd:option('-controller-name',  'pos_based_pos_traj_controller', 'Emulation of ROS position controller')
+  cmd:option('-controller-name',  'ur5', 'Emulation of ROS position controller')
   local opt = cmd:parse(arg or {})
 
-  -- print effective options
-  print('Effective command line options:')
-  print(opt)
-
   -- ros initialization
-  ros.init('ur5_driver')
-  nh = ros.NodeHandle()
+  ros.init('ur5_driver', nil, rosArgs)
+  nh = ros.NodeHandle('~')
 
   -- create joint state publisher
   jointNames = createJointNames()
-  jointStatePublisher = nh:advertise('joint_states', 'sensor_msgs/JointState', 1)
+  jointStatePublisher = nh:advertise('/joint_states', 'sensor_msgs/JointState', 1)
   jointMsg = jointStatePublisher:createMessage()
   jointMsg.name = jointNames
 
@@ -355,18 +352,20 @@ local function main()
     error = ros.ERROR
   }
 
+  local controllerName, ok = nh:getParamString('controller_name')
+  if (ok == false) then
+    controllerName = opt['controller-name']
+  end
+
   if opt['controller-name'] and #opt['controller-name'] > 0 then
     startPosTrajControllerListener(opt['controller-name'])
   end
-
-  local revname = opt['reversename']
-  if opt['reversename'] == '' then revname = nil end
 
   -- create driver object
   local driverConfiguration = {
     hostname                = opt['hostname'],
     realtimePort            = opt['realtime-port'],
-    reversename             = revname,
+    reversename             = opt['reversename'],
     reverserealtimePort     = opt['reverse-realtime-port'],
     lookahead               = opt['lookahead'],
     servoTime               = opt['servo-time'],
@@ -377,7 +376,35 @@ local function main()
     maxIdleCycles           = opt['max-idle-cycles'],
     maxSinglePointTrajectoryDistance = opt['max-single-point-trajectory-distance']
   }
-  driver = URDriver(driverConfiguration, logger)
+
+  local overrideInputArguments = function (key, value, ok)
+    if ok == true  then
+      driverConfiguration[key] = value
+    end
+  end
+
+  overrideInputArguments('hostname', nh:getParamString('hostname'))
+  overrideInputArguments('realtimePort', nh:getParamInt('realtime_port'))
+  overrideInputArguments('reversename', nh:getParamString('reversename'))
+  overrideInputArguments('reverserealtimePort', nh:getParamInt('reverse_realtime_port'))
+  overrideInputArguments('lookahead', nh:getParamDouble('lookahead'))
+  overrideInputArguments('servoTime', nh:getParamDouble('servo_time'))
+  overrideInputArguments('gain', nh:getParamDouble('gain'))
+  overrideInputArguments('pathTolerance', nh:getParamDouble('path_tolerance'))
+  overrideInputArguments('ringSize', nh:getParamInt('ring_size'))
+  overrideInputArguments('scriptTemplateFilename', nh:getParamString('script_template'))
+  overrideInputArguments('maxIdleCycles', nh:getParamInt('max_idle_cycles'))
+  overrideInputArguments('maxSinglePointTrajectoryDistance', nh:getParamDouble('max_single_point_trajectory_distance'))
+
+  if driverConfiguration['reversename'] == '' then driverConfiguration['reversename'] = nil end
+
+  -- print effective options
+  print('Effective driver configuration:')
+  print(driverConfiguration)
+
+  local heartbeat = xamal_sysmon.Heartbeat()
+  heartbeat:start(nh, 5)
+  driver = URDriver(driverConfiguration, logger, heartbeat)
   driver:addSyncCallback(publishJointStates)
 
   -- set up follow trajectory action server
@@ -390,6 +417,7 @@ local function main()
   -- main driver loop
   while ros.ok() do
     driver:spin()
+    heartbeat:publish()
     ros.spinOnce()
     collectgarbage()
   end
