@@ -333,17 +333,12 @@ local function main()
   cmd:option('-script-template',      'driver.urscript',  'filename of urscript template executed on robot')
   cmd:option('-max-idle-cycles',      250,                'number of idle cycles before driver_proc shutdown')
   cmd:option('-controller-name',  'ur5', 'Emulation of ROS position controller')
+  cmd:option('-joint-name-prefix',  '', 'Name prefix of published joints')
   local opt = cmd:parse(arg or {})
 
   -- ros initialization
   ros.init('ur5_driver', nil, rosArgs)
   nh = ros.NodeHandle('~')
-
-  -- create joint state publisher
-  jointNames = createJointNames()
-  jointStatePublisher = nh:advertise('/joint_states', 'sensor_msgs/JointState', 1)
-  jointMsg = jointStatePublisher:createMessage()
-  jointMsg.name = jointNames
 
   local logger = {
     debug = ros.DEBUG,
@@ -374,7 +369,8 @@ local function main()
     ringSize                = opt['ring-size'],
     scriptTemplateFilename  = opt['script-template'],
     maxIdleCycles           = opt['max-idle-cycles'],
-    maxSinglePointTrajectoryDistance = opt['max-single-point-trajectory-distance']
+    maxSinglePointTrajectoryDistance = opt['max-single-point-trajectory-distance'],
+    jointNamePrefix           = opt['joint-name-prefix']
   }
 
   local overrideInputArguments = function (key, value, ok)
@@ -395,8 +391,15 @@ local function main()
   overrideInputArguments('scriptTemplateFilename', nh:getParamString('script_template'))
   overrideInputArguments('maxIdleCycles', nh:getParamInt('max_idle_cycles'))
   overrideInputArguments('maxSinglePointTrajectoryDistance', nh:getParamDouble('max_single_point_trajectory_distance'))
+  overrideInputArguments('jointNamePrefix', nh:getParamString('joint_name_prefix'))
 
   if driverConfiguration['reversename'] == '' then driverConfiguration['reversename'] = nil end
+
+  -- create joint state publisher
+  jointNames = createJointNames(driverConfiguration.jointNamePrefix)
+  jointStatePublisher = nh:advertise('/joint_states', 'sensor_msgs/JointState', 1)
+  jointMsg = jointStatePublisher:createMessage()
+  jointMsg.name = jointNames
 
   -- print effective options
   print('Effective driver configuration:')

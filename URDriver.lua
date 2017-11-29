@@ -69,6 +69,7 @@ function URDriver:__init(cfg, logger, heartbeat)
   self.ringSize = cfg.ringSize or DEFAULT_RING_SIZE
   self.maxIdleCycles = cfg.maxIdleCycles or DEFAULT_MAX_IDLE_CYCLES
   self.maxSinglePointTrajectoryDistance = cfg.maxSinglePointTrajectoryDistance or DEFAULT_MAX_SINGLE_POINT_TRAJECTORY_DISTANCE
+  self.jointNamePrefix = cfg.jointNamePrefix
 
   -- read script template
   local scriptFilename = cfg.scriptTemplateFileName or DEFAULT_SCRIPT_TEMPLATE_FILENAME
