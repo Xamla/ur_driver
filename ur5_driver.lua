@@ -228,7 +228,7 @@ local function posTrajController_Command(msg, header, subscriber)
     return
   end
 
-  ros.WARN('posTrajController_Command: Trajectory with %d points received.', time:nElement())
+  ros.DEBUG('posTrajController_Command: Trajectory with %d points received.', time:nElement())
 
   local traj = {
     maxBuffering = 2,
@@ -330,10 +330,11 @@ local function main()
   cmd:option('-servo-time',           0.008,              'servo time (in ms) for servoj')
   cmd:option('-path-tolerance',       math.pi / 10,       'max set point distance to current joint configuration')
   cmd:option('-ring-size',            64,                 'robot side ring buffer ring-size')
-  cmd:option('-script-template',      'driver.urscript',  'filename of urscript template executed on robot')
+  cmd:option('-script-template',      'driverCB3.urscript',  'filename of urscript template executed on robot')
   cmd:option('-max-idle-cycles',      250,                'number of idle cycles before driver_proc shutdown')
   cmd:option('-controller-name',  'ur5', 'Emulation of ROS position controller')
   cmd:option('-joint-name-prefix',  '', 'Name prefix of published joints')
+  cmd:option('-use-cb2', false, 'Use CB2 controller instead of CB3')
   local opt = cmd:parse(arg or {})
 
   -- ros initialization
@@ -370,7 +371,8 @@ local function main()
     scriptTemplateFilename  = opt['script-template'],
     maxIdleCycles           = opt['max-idle-cycles'],
     maxSinglePointTrajectoryDistance = opt['max-single-point-trajectory-distance'],
-    jointNamePrefix           = opt['joint-name-prefix']
+    jointNamePrefix           = opt['joint-name-prefix'],
+    useCb2           = opt['use-cb2']
   }
 
   local overrideInputArguments = function (key, value, ok)
@@ -392,6 +394,7 @@ local function main()
   overrideInputArguments('maxIdleCycles', nh:getParamInt('max_idle_cycles'))
   overrideInputArguments('maxSinglePointTrajectoryDistance', nh:getParamDouble('max_single_point_trajectory_distance'))
   overrideInputArguments('jointNamePrefix', nh:getParamString('joint_name_prefix'))
+  overrideInputArguments('useCb2', nh:getParamBool('use_cb2'))
 
   if driverConfiguration['reversename'] == '' then driverConfiguration['reversename'] = nil end
 

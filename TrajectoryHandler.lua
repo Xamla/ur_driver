@@ -92,7 +92,7 @@ function TrajectoryHandler:update()
 
   if avail < 0 or avail > self.ringSize-1 then
     self.status = TrajectoryHandlerStatus.ProtocolError
-    self.logger.error('[TrajectoryHandler] Error: Invalid avail count received from robot.')
+    self.logger.error('[TrajectoryHandler] Error: Invalid avail count received from robot. %s - %s', tostring(avail), tostring(self.ringSize))
     return false
   end
 

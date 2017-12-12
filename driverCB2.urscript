@@ -1,0 +1,193 @@
+def driver_proc():
+
+  # simple ring buffer
+  MULT_JOINT = 1000000
+  RING_SIZE = ${RingSize}
+  PATH_TOLERANCE = ${PathTolerance}
+  write_pos = 0
+  read_pos = 0
+
+  ring = [
+    ${RingZeros}
+  ]
+
+  def ring_count():
+    if write_pos >= read_pos:
+      return write_pos - read_pos
+    else:
+      return RING_SIZE + write_pos - read_pos
+    end
+  end
+
+  def ring_avail():
+    return (RING_SIZE - 1) - ring_count()
+  end
+
+  def ring_add(l):
+    next_pos = (write_pos + 1) % RING_SIZE
+    if next_pos == read_pos:
+      popup("Input queue overflow!", "Error", False, True)
+      halt
+    end
+    i = 0
+    while i < 7:
+      ring[write_pos*7+i] = l[i]
+      i = i + 1
+    end
+    write_pos = next_pos
+  end
+
+  def ring_remove():
+    if read_pos == write_pos:
+      popup("Input queue underflow!", "Error", False, True)
+      halt
+    end
+    l = [
+      ring[read_pos*7+0],
+      ring[read_pos*7+1],
+      ring[read_pos*7+2],
+      ring[read_pos*7+3],
+      ring[read_pos*7+4],
+      ring[read_pos*7+5],
+      ring[read_pos*7+6]
+    ]
+    read_pos = (read_pos + 1) % RING_SIZE
+    return l
+  end
+
+  def ring_clear():
+    read_pos = write_pos
+  end
+
+  def vsub(a,b):
+    return [ a[0]-b[0], a[1]-b[1], a[2]-b[2], a[3]-b[3], a[4]-b[4], a[5]-b[5] ]
+  end
+
+  def distance(a, b):
+    return norm(vsub(a, b))
+  end
+
+  def goal_distance(q_goal):
+    return distance(get_actual_joint_positions(), q_goal)
+  end
+
+  def joint_checksum(q):
+    s = 0   # sum
+    i = 0   # joint index
+    m = 1   # left shift multiplier (one bit per joint byte)
+    while i < 6:
+      x = q[i]
+      if x < 0:
+        x = -x + 1    # reflect sign in lsb
+      end
+      j = 0
+
+      d = 1   # divisor for right shift
+      while j < 4:
+        s = s + (floor(x / d) % 255) * m    # mask out byte and add to sum (left shifted)
+        m = m * 2   # shift one more to left
+        d = d * 256
+        j = j + 1
+      end
+
+      i = i + 1
+    end
+    return s
+  end
+
+  thread servo_thread():
+    count = 0
+    q = get_actual_joint_positions()
+
+    while True:
+      enter_critical
+      count = ring_count()
+      if count > 0:
+        qr = ring_remove()
+      end
+      exit_critical
+
+      if count > 0:   # if new qr value has been read from ring buffer
+
+        # check joint configuration checksum
+        if joint_checksum(qr) != qr[6]:
+          stopj(3)
+          popup("Joint configuration checksum mismatch!", "Error", False, True)
+          halt
+        end
+
+        # restore floating point joint values and add to queue
+        q = [ qr[0]/MULT_JOINT, qr[1]/MULT_JOINT, qr[2]/MULT_JOINT, qr[3]/MULT_JOINT, qr[4]/MULT_JOINT, qr[5]/MULT_JOINT ]
+
+        # check distance of set point to current joint configuration
+        if distance(q, get_actual_joint_positions()) > PATH_TOLERANCE:
+          stopj(3)
+          popup("Desired set point too far away from current joint configuration!", "Error", False, True)
+          halt
+        end
+      end
+
+      if count > 0 or goal_distance(q) > 0.001:
+        servoj(q, t=${ServoTime})
+      else:
+        stopj(5)
+        sync()
+      end
+    end
+  end
+
+  socket_open("${IP}", ${Port}, "remote")
+  thread_servo = run servo_thread()
+
+  i = 0
+  keepalive = 1
+  while keepalive > 0:
+
+    enter_critical
+    a = ring_avail()
+    exit_critical
+
+    socket_send_int(a, "remote")                  # inform host about ring-buffer fill level
+    r = socket_read_binary_integer(1, "remote")   # read how many joint configurations client will send
+    b = -1          # -1 means read-error or stop, driver will terminate
+    if r[0] > 0:
+      b = r[1]
+    end
+    if b == -1:
+      textmsg("stop received")
+      keepalive = 0
+    elif b < -1:
+      textmsg("cancel received")
+      enter_critical
+      ring_clear()
+      exit_critical
+    elif b > 0:
+
+      while b > 0:
+        qraw = socket_read_binary_integer(7, "remote")  # multiplied joint values + checksum
+        if qraw[0] != 7:
+          textmsg("Read Error")
+          halt
+        end
+
+        enter_critical
+        ring_add([ qraw[1], qraw[2], qraw[3], qraw[4], qraw[5], qraw[6], qraw[7] ])
+        exit_critical
+
+        b = b - 1
+        if b%3 == 0:
+          sync()
+        end
+      end
+    else:
+      sync()
+    end
+    i = i + 1
+  end
+
+  kill thread_servo
+  socket_close("remote")
+
+  stopj(5.0)
+  textmsg("bye.")
+end

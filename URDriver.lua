@@ -2,9 +2,10 @@ local torch = require 'torch'
 local sys = require 'sys'
 local ffi = require 'ffi'
 require 'RealtimeStream'
-require 'RealtimeState'
 require 'ReverseConnection'
 require 'TrajectoryHandler'
+require 'RealtimeStateCB2'
+require 'RealtimeState'
 local ur5 = require 'ur5_env'
 
 
@@ -72,12 +73,19 @@ function URDriver:__init(cfg, logger, heartbeat)
   self.jointNamePrefix = cfg.jointNamePrefix
 
   -- read script template
-  local scriptFilename = cfg.scriptTemplateFileName or DEFAULT_SCRIPT_TEMPLATE_FILENAME
+  local scriptFilename = cfg.scriptTemplateFilename or DEFAULT_SCRIPT_TEMPLATE_FILENAME
   local f = assert(io.open(scriptFilename, "r"))
   self.scriptTemplate = f:read("*all")
   f:close()
 
-  self.realtimeState = RealtimeState()
+  if (cfg.useCb2 == true) then
+    print('[URDriver] using CB2 controller')
+    self.realtimeState = RealtimeStateCB2()
+  else
+    print('[URDriver] using CB3 controller')
+    self.realtimeState = RealtimeState()
+  end
+
   self.realtimeStream = RealtimeStream(self.realtimeState, self.logger)
   self.syncCallbacks = {}
   self.trajectoryQueue = {}      -- list of pending trajectories
