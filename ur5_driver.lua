@@ -143,7 +143,7 @@ local function FollowJointTrajectory_Goal(goalHandle)
   local traj = {
     time = time, pos = pos, vel = vel, acc = acc,
     goalHandle = goalHandle, goal = g,
-    accept = function()
+    accept = function(self)
       if goalHandle:getGoalStatus().status == GoalStatus.PENDING then
         goalHandle:setAccepted('Starting trajectory execution')
         return true
@@ -152,7 +152,7 @@ local function FollowJointTrajectory_Goal(goalHandle)
         return false
       end
     end,
-    proceed = function()
+    proceed = function(self)
       if goalHandle:getGoalStatus().status == GoalStatus.ACTIVE then
         return true
       else
@@ -163,7 +163,7 @@ local function FollowJointTrajectory_Goal(goalHandle)
     abort = function(self, msg)
       goalHandle:setAborted(nil, msg or 'Error')
     end,
-    completed = function()
+    completed = function(self)
       local r = goalHandle:createResult()
       r.error_code = TrajectoryResultStatus.SUCCESSFUL
       goalHandle:setSucceeded(r, 'Completed')
@@ -194,15 +194,16 @@ end
 local function FollowJointTrajectory_Cancel(goalHandle)
   ros.INFO('FollowJointTrajectory_Cancel')
 
-  -- check if trajectory is in trajectoryQueue
-  local i = findIndex(driver.trajectoryQueue, function(x) return x.goalHandle == goalHandle end)
-  if i > 0 then
-    -- entry found, simply remove from queue
-    table.remove(driver.trajectoryQueue, i)
-    goalHandle:setCanceled(nil, 'Canceled')
-
-  elseif driver.currentTrajectory ~= nil and driver.currentTrajectory.goalHandle == goalHandle then
+  if driver.currentTrajectory ~= nil and driver.currentTrajectory.goalHandle == goalHandle then
     driver:cancelCurrentTrajectory('Canceled')
+  else
+    -- check if trajectory is in trajectoryQueue
+    local i = findIndex(driver.trajectoryQueue, function(x) return x.goalHandle == goalHandle end)
+    if i > 0 then
+      -- entry found, simply remove from queue
+      table.remove(driver.trajectoryQueue, i)
+    end
+    goalHandle:setCanceled(nil, 'Canceled')
   end
 end
 
@@ -238,7 +239,7 @@ local function posTrajController_Command(msg, header, subscriber)
     abort = function(self, msg)
       currentPosTraj = nil
     end,
-    completed = function()
+    completed = function(self)
       currentPosTraj = nil
     end
   }

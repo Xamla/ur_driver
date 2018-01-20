@@ -305,15 +305,13 @@ end
 function URDriver:cancelCurrentTrajectory(abortMsg)
   if self.currentTrajectory ~= nil then
     self.logger.info('[URDriver] Cancelling trajectory execution.')
+    local traj = self.currentTrajectory.traj
     local handler = self.currentTrajectory.handler
-    if callAbortCallback then
-      local traj = self.currentTrajectory.traj
-      if traj.abort ~= nil then
-        traj:abort(abortMsg or 'Canceled')        -- abort callback
-      end
-    end
-    self.currentTrajectory = nil
     handler:cancel()
+    self.currentTrajectory = nil
+    if traj.abort ~= nil then
+      traj:abort(abortMsg or 'Canceled')        -- abort callback (e.g. set goal canceled)
+    end
   end
 end
 
@@ -457,7 +455,7 @@ local function dispatchTrajectory(self)
 
     else
       -- robot not ready or proceed callback returned false
-      self:cancelCurrentTrajectory('Robot not ready or proceed callback returned false.')
+      self:cancelCurrentTrajectory('Robot not ready or `proceed` callback function returned `false`.')
     end
   end
 
