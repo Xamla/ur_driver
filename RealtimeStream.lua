@@ -44,6 +44,7 @@ function RealtimeStream:__init(realtimeState, logger)
   self.client = socket.tcp()
   self.client:setoption('tcp-nodelay', true)
   self.state = RealtimeStreamState.Disconnected
+  self.readTimeouts = 0
 end
 
 
@@ -55,6 +56,7 @@ function RealtimeStream:connect(hostname, port)
   end
   self.client:settimeout(READ_TIMEOUT, 't')
   self.state = RealtimeStreamState.Connected
+  self.readTimeouts = 0
   return true
 end
 
@@ -147,6 +149,11 @@ function RealtimeStream:read()
       self.state = RealtimeStreamState.Error
       return false
     end
+  end
+  if updated then
+    self.readTimeouts = 0
+  else
+    self.readTimeouts = self.readTimeouts + 1
   end
   return updated
 end

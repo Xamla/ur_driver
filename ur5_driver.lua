@@ -422,11 +422,13 @@ local function main()
   followTrajectoryServer:start()
 
   -- main driver loop
+  local rate = ros.Rate(250)
   while ros.ok() do
     driver:spin()
     heartbeat:publish()
     ros.spinOnce()
     collectgarbage()
+    rate:sleep()
   end
 
   -- tear down components

@@ -5,8 +5,8 @@ local ur5 = require 'ur5_env'
 local bigEndianAdapter = require 'BigEndianAdapter'
 
 
-local MAX_READ_AVAIL_RETRIES = 10
-local TIMEOUT = 0.5
+local MAX_READ_AVAIL_RETRIES = 100
+local TIMEOUT = 0.002
 
 
 local ReverseConnection = torch.class('ReverseConnection')
@@ -31,9 +31,12 @@ end
 
 -- read available buffer size on robot
 function ReverseConnection:readAvailable()
-  local response = self.socket:receive(4)
+  local response, err, p = self.socket:receive(4)
   if response == nil then
-    return nil
+    if p ~= nil and #p > 0 then
+      return nil, 'partial'
+    end
+    return nil, err
   end
 
   local reader = self.reader
@@ -44,7 +47,6 @@ end
 
 function ReverseConnection:idle(op)
   op = op or 0
-
   self.idleCycles = self.idleCycles + 1
   for i=1,MAX_READ_AVAIL_RETRIES do
     local avail, err = self:readAvailable()
@@ -54,6 +56,10 @@ function ReverseConnection:idle(op)
     elseif err ~= 'timeout' then
       self.error = true
       return nil
+    end
+
+    if op == 0 then   -- do not wait if we did not receive available count
+      return 0
     end
   end
 

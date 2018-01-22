@@ -81,7 +81,7 @@ function TrajectoryHandler:update()
   local avail = self.reverseConnection:readAvailable()
   if avail == nil then
     self.noResponse = self.noResponse + 1
-    if self.noResponse > 10 then
+    if self.noResponse > 100 then
       self.status = TrajectoryHandlerStatus.ConnectionLost
       self.logger.error('[TrajectoryHandler] Error: No response from robot!')
       return false

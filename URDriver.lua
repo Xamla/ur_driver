@@ -205,26 +205,38 @@ function URDriver:removeSyncCallback(fn)
 end
 
 
-function URDriver:sync()
-  for i=1,MAX_SYNC_READ_TRIES do
-
-    if self.realtimeStream:getState() ~= RealtimeStreamState.Connected then
-      return false, '[URDriver] Realtime stream not connected.'
-    end
-
-    if self.realtimeStream:read() then
-
-      -- execute sync callbacks (e.g. to publish joint states)
-      for i,fn in ipairs(self.syncCallbacks) do
-        fn(self)
-      end
-
-      return true
-    end
-
+function URDriver:poll()
+  if self.realtimeStream:getState() ~= RealtimeStreamState.Connected then
+    return nil, '[URDriver] Realtime stream not connected.'
   end
 
-  return false, '[URDriver] Sync timeout.'
+  if self.realtimeStream:read() then
+
+    -- execute sync callbacks (e.g. to publish joint states)
+    for j,fn in ipairs(self.syncCallbacks) do
+      fn(self)
+    end
+
+    return true
+  end
+
+  if self.realtimeStream.readTimeouts > MAX_SYNC_READ_TRIES then
+    return nil, '[URDriver] Sync timeout.'
+  end
+
+  return false
+end
+
+
+function URDriver:sync()
+  while true do
+    local ok, err = self:poll(true)
+    if ok then
+      return ok, 'ok'
+    elseif ok == nil then
+      return ok, err
+    end
+  end
 end
 
 
@@ -463,8 +475,8 @@ end
 
 
 local function driverCore(self)
-  local ok, err = self:sync()
-  if not ok then
+  local ok, err = self:poll(false)
+  if ok == nil then
     error(err)
   end
   dispatchTrajectory(self)
