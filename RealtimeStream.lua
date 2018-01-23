@@ -13,6 +13,8 @@ local DEFAULT_REALTIME_PORT = 30003
 local STASH_SIZE = 2048
 local MAX_PACKAGE_SIZE = 1060
 local HEADER_SIZE = 4
+local CONNECT_TIMEOUT = 1.0
+local RECONNECT_WAIT = 0.1
 local READ_TIMEOUT = 0.004
 local RECEIVE_BUFFER_SIZE = 4096
 
@@ -49,9 +51,13 @@ end
 
 
 function RealtimeStream:connect(hostname, port)
+  self.client:settimeout(CONNECT_TIMEOUT)
   local ok, err = self.client:connect(hostname, port or DEFAULT_REALTIME_PORT)
   if not ok then
     self.logger.error('Connecting failed, error: ' .. err)
+    self.client:close()
+    sys.sleep(RECONNECT_WAIT)
+    self.client = socket.tcp()
     return false
   end
   self.client:settimeout(READ_TIMEOUT, 't')
