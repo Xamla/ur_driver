@@ -159,6 +159,9 @@ local function FollowJointTrajectory_Goal(goalHandle)
         return false
       end
     end,
+    cancel = function(self)
+      goalHandle:setCancelRequested()
+    end,
     abort = function(self, msg)
       goalHandle:setAborted(nil, msg or 'Error')
     end,
@@ -194,7 +197,7 @@ local function FollowJointTrajectory_Cancel(goalHandle)
   ros.INFO('FollowJointTrajectory_Cancel')
 
   if driver.currentTrajectory ~= nil and driver.currentTrajectory.traj.goalHandle == goalHandle then
-    driver:cancelCurrentTrajectory('Canceled')
+    driver:cancelCurrentTrajectory()
   else
     -- check if trajectory is in trajectoryQueue
     local i = findIndex(driver.trajectoryQueue, function(x) return x.goalHandle == goalHandle end)
@@ -323,24 +326,26 @@ local function main()
   cmd:text()
   cmd:text('Xamla UR5 ROS driver')
   cmd:text()
-  cmd:option('-hostname',              'ur5',             'hostname of robot to connect to')
-  cmd:option('-realtime-port',         30003,             'realtime port')
-  cmd:option('-reversename',              '',             'servername. Robot connect to localhost')
-  cmd:option('-reverse-realtime-port',    0,              'realtime port')
-  cmd:option('-lookahead',             0.01,              'lookahead time (in ms) for servoj')
-  cmd:option('-gain',                  1000,              'gain parameter for servoj')
-  cmd:option('-servo-time',           0.008,              'servo time (in ms) for servoj')
-  cmd:option('-path-tolerance',       math.pi / 10,       'max set point distance to current joint configuration')
-  cmd:option('-ring-size',            64,                 'robot side ring buffer ring-size')
-  cmd:option('-script-template',      'driverCB3.urscript',  'filename of urscript template executed on robot')
-  cmd:option('-max-idle-cycles',      250,                'number of idle cycles before driver_proc shutdown')
-  cmd:option('-controller-name',  'ur5', 'Emulation of ROS position controller')
-  cmd:option('-joint-name-prefix',  '', 'Name prefix of published joints')
+  cmd:option('-hostname',              'ur5',              'hostname of robot to connect to')
+  cmd:option('-realtime-port',         30003,              'realtime port')
+  cmd:option('-reversename',              '',              'servername. Robot connect to localhost')
+  cmd:option('-reverse-realtime-port',     0,              'realtime port')
+  cmd:option('-lookahead',              0.01,              'lookahead time (in ms) for servoj')
+  cmd:option('-gain',                   1200,              'gain parameter for servoj')
+  cmd:option('-servo-time',            0.008,              'servo time (in ms) for servoj')
+  cmd:option('-path-tolerance', math.pi / 10,              'max set point distance to current joint configuration')
+  cmd:option('-ring-size',                64,              'robot side ring buffer ring-size')
+  cmd:option('-script-template',    'driverCB3.urscript',  'filename of urscript template executed on robot')
+  cmd:option('-max-idle-cycles',         250,              'number of idle cycles before driver_proc shutdown')
+  cmd:option('-controller-name',       'ur5',              'emulation of ROS position controller')
+  cmd:option('-joint-name-prefix',        '',              'name prefix of published joints')
+  cmd:option('-max-convergence-cycles',  150,              'max number of cycles to wait for goal convergence')
   cmd:option('-use-cb2', false, 'Use CB2 controller instead of CB3')
   local opt = cmd:parse(arg or {})
 
   -- ros initialization
-  ros.init('ur5_driver', nil, rosArgs)
+  local ros_init_options = 0
+  ros.init('ur5_driver', ros_init_options, rosArgs)
   nh = ros.NodeHandle('~')
 
   local logger = {
@@ -373,8 +378,9 @@ local function main()
     scriptTemplateFilename  = opt['script-template'],
     maxIdleCycles           = opt['max-idle-cycles'],
     maxSinglePointTrajectoryDistance = opt['max-single-point-trajectory-distance'],
-    jointNamePrefix           = opt['joint-name-prefix'],
-    useCb2           = opt['use-cb2']
+    maxConvergenceCycles    = opt['max-convergence-cycles'],
+    jointNamePrefix         = opt['joint-name-prefix'],
+    useCb2                  = opt['use-cb2']
   }
 
   local overrideInputArguments = function (key, value, ok)
@@ -395,6 +401,7 @@ local function main()
   overrideInputArguments('scriptTemplateFilename', nh:getParamString('script_template'))
   overrideInputArguments('maxIdleCycles', nh:getParamInt('max_idle_cycles'))
   overrideInputArguments('maxSinglePointTrajectoryDistance', nh:getParamDouble('max_single_point_trajectory_distance'))
+  overrideInputArguments('maxConvergenceCycles', nh:getParamInt('max_convergence_cycles'))
   overrideInputArguments('jointNamePrefix', nh:getParamString('joint_name_prefix'))
   overrideInputArguments('useCb2', nh:getParamBool('use_cb2'))
 

@@ -25,9 +25,10 @@ local DEFAULT_RING_SIZE = 64
 local DEFAULT_PATH_TOLERANCE = math.pi / 10
 local DEFAULT_LOOKAHEAD = 0.01
 local DEFAULT_SERVO_TIME = 0.008
-local DEFAULT_GAIN = 1000
+local DEFAULT_GAIN = 1200
 local DEFAULT_SCRIPT_TEMPLATE_FILENAME = 'driver.urscript'
 local DEFAULT_MAX_SINGLE_POINT_TRAJECTORY_DISTANCE = 0.5      -- max allowed distance of single point trajectory target relative to current joint pos
+local DEFAULT_MAX_CONVERGENCE_CYCLES = 150
 
 
 -- these values are used for a basic trajectory sanity check (in validateTrajectory)
@@ -71,6 +72,7 @@ function URDriver:__init(cfg, logger, heartbeat)
   self.maxIdleCycles = cfg.maxIdleCycles or DEFAULT_MAX_IDLE_CYCLES
   self.maxSinglePointTrajectoryDistance = cfg.maxSinglePointTrajectoryDistance or DEFAULT_MAX_SINGLE_POINT_TRAJECTORY_DISTANCE
   self.jointNamePrefix = cfg.jointNamePrefix
+  self.maxConvergenceCycles = cfg.maxConvergenceCycles or DEFAULT_MAX_CONVERGENCE_CYCLES
 
   -- read script template
   local scriptFilename = cfg.scriptTemplateFilename or DEFAULT_SCRIPT_TEMPLATE_FILENAME
@@ -309,21 +311,23 @@ function URDriver:createTrajectoryHandler(traj, flush, waitCovergence, maxBuffer
     flush,
     waitCovergence,
     maxBuffering,
+    self.maxConvergenceCycles,
     self.logger
   )
 end
 
 
-function URDriver:cancelCurrentTrajectory(abortMsg)
-  if self.currentTrajectory ~= nil then
-    self.logger.info('[URDriver] Cancelling trajectory execution.')
-    local traj = self.currentTrajectory.traj
-    local handler = self.currentTrajectory.handler
-    handler:cancel()
-    self.currentTrajectory = nil
-    if traj.abort ~= nil then
-      traj:abort(abortMsg or 'Canceled')        -- abort callback (e.g. set goal canceled)
-    end
+function URDriver:cancelCurrentTrajectory()
+  if self.currentTrajectory == nil then
+    return
+  end
+
+  self.logger.info('[URDriver] Cancelling trajectory execution.')
+  local traj = self.currentTrajectory.traj
+  local handler = self.currentTrajectory.handler
+  handler:cancel()
+  if traj.cancel ~= nil then
+    traj:cancel()        -- cancel callback (e.g. enter canel requested state)
   end
 end
 
@@ -455,7 +459,15 @@ local function dispatchTrajectory(self)
 
       if not ok or handler.status < 0 then    -- error
         if traj.abort ~= nil then
-          traj:abort()        -- abort callback
+          local msg
+          if handler.status == TrajectoryHandlerStatus.Canceled then
+            msg = 'Robot was stopped due to trajectory cancel request.'
+          elseif handler.status == TrajectoryHandlerStatus.ConnectionLost then
+            msg = 'Connection to robot was lost.'
+          elseif handler.status == TrajectoryHandlerStatus.ProtocolError then
+            msg = 'A robot communication error occured (ProtocolError).'
+          end
+          traj:abort(msg)        -- abort callback
         end
         self.currentTrajectory = nil
       elseif handler.status == TrajectoryHandlerStatus.Completed then
@@ -467,7 +479,7 @@ local function dispatchTrajectory(self)
 
     else
       -- robot not ready or proceed callback returned false
-      self:cancelCurrentTrajectory('Robot not ready or `proceed` callback function returned `false`.')
+      self:cancelCurrentTrajectory()
     end
   end
 
@@ -530,7 +542,7 @@ function URDriver:spin()
     (self.reverseConnection ~= nil and self.reverseConnection.error) then
 
     -- abort current trajectory
-    if self.currentTrajectory then
+    if self.currentTrajectory ~= nil then
       local traj = self.currentTrajectory.traj
       if traj.abort ~= nil then
         traj:abort()

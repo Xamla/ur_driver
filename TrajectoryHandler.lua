@@ -3,10 +3,10 @@ require 'TrajectorySampler'
 local ur5 = require 'ur5_env'
 
 
-local GOAL_CONVERGENCE_POSITION_THRESHOLD = 0.00051   -- in rad
-local GOAL_CONVERGENCE_VELOCITY_THRESHOLD = 0.001    -- in rad/s
-local MAX_CONVERGENCE_CYCLES = 50
-
+local GOAL_CONVERGENCE_POSITION_THRESHOLD = 0.00075   -- in rad
+local GOAL_CONVERGENCE_VELOCITY_THRESHOLD = 0.001     -- in rad/s
+local MAX_NO_RESPONSE = 100   -- number of cycles without avail count message from driver before entering ConnectionLost state
+local STOP_CYCLE_COUNT = 3  -- number of cycles with v < threshold before robot is considered stopped
 
 local TrajectoryHandlerStatus = {
   ProtocolError = -3,
@@ -15,6 +15,7 @@ local TrajectoryHandlerStatus = {
   Fresh = 0,
   Streaming = 1,
   Flushing = 2,
+  Cancelling = 3,     -- stop request has been sent to robot, waiting for zero velocity
   Completed = 1000,
 }
 ur5.TrajectoryHandlerStatus = TrajectoryHandlerStatus
@@ -23,8 +24,9 @@ ur5.TrajectoryHandlerStatus = TrajectoryHandlerStatus
 local TrajectoryHandler = torch.class('TrajectoryHandler')
 
 
-function TrajectoryHandler:__init(ringSize, servoTime, realtimeState, reverseConnection, traj, flush, waitCovergence, maxBuffering, logger)
+function TrajectoryHandler:__init(ringSize, servoTime, realtimeState, reverseConnection, traj, flush, waitCovergence, maxBuffering, maxConvergenceCycles, logger)
   assert(reverseConnection, "[TrajectoryHandler] Argument 'reverseConnection' must not be nil.")
+  assert(maxConvergenceCycles > 0, "[TrajectoryHandler] Argument 'maxConvergenceCycles' must be greater than zero.")
   self.ringSize = ringSize
   self.realtimeState = realtimeState
   self.reverseConnection = reverseConnection
@@ -33,19 +35,36 @@ function TrajectoryHandler:__init(ringSize, servoTime, realtimeState, reverseCon
   self.waitCovergence = waitCovergence
   self.maxBuffering = maxBuffering or ringSize
   self.logger = logger or ur5.DEFAULT_LOGGER
-  self.noResponse = 0
   self.status = TrajectoryHandlerStatus.Fresh
   self.sampler = TrajectorySampler(traj, servoTime)
+  self.maxConvergenceCycles = maxConvergenceCycles
   self.noResponse = 0
   self.convergenceCycle = 0
+  self.noMotionCycle = 0
 end
 
 
 function TrajectoryHandler:cancel()
-  if self.status > 0 then
+  if self.status > 0 and self.status ~= TrajectoryHandlerStatus.Cancelling then
     self.reverseConnection:cancel()    -- send cancel message to robot
-    self.status = TrajectoryHandlerStatus.Canceled
+    self.status = TrajectoryHandlerStatus.Cancelling
   end
+end
+
+
+local function isRobotStopped(self)
+  return self.noMotionCycle > STOP_CYCLE_COUNT
+end
+
+
+local function checkRobotStopped(self)
+  local qd_actual = self.realtimeState.qd_actual
+  if qd_actual:norm() < GOAL_CONVERGENCE_VELOCITY_THRESHOLD then
+    self.noMotionCycle = self.noMotionCycle + 1
+  else
+    self.noMotionCycle = 0
+  end
+  return isRobotStopped(self)
 end
 
 
@@ -59,11 +78,11 @@ local function reachedGoal(self)
   self.logger.debug('Convergence cycle %d: |qd_actual|: %f; goal_distance (joints): %f;', self.convergenceCycle, qd_actual:norm(), goal_distance)
 
   self.convergenceCycle = self.convergenceCycle + 1
-  if self.convergenceCycle >= MAX_CONVERGENCE_CYCLES then
-    error(string.format('Did not reach goal after %d convergence cycles.', MAX_CONVERGENCE_CYCLES))
+  if self.convergenceCycle >= self.maxConvergenceCycles then
+    error(string.format('[TrajectoryHandler] Did not reach goal after %d convergence cycles. Goal distance: %f; |qd_actual|: %f;', self.maxConvergenceCycles, goal_distance, qd_actual:norm()))
   end
 
-  return qd_actual:norm() < GOAL_CONVERGENCE_VELOCITY_THRESHOLD and goal_distance < GOAL_CONVERGENCE_POSITION_THRESHOLD
+  return isRobotStopped(self) and goal_distance < GOAL_CONVERGENCE_POSITION_THRESHOLD
 end
 
 
@@ -73,7 +92,7 @@ function TrajectoryHandler:update()
   end
 
   local driver = self.driver
-  if self.sampler:atEnd() and self.flush == false then
+  if self.sampler:atEnd() and self.flush == false and self.status ~= TrajectoryHandlerStatus.Cancelling then
     self.status = TrajectoryHandlerStatus.Completed
     return false  -- all data sent, nothing to do
   end
@@ -81,7 +100,7 @@ function TrajectoryHandler:update()
   local avail = self.reverseConnection:readAvailable()
   if avail == nil then
     self.noResponse = self.noResponse + 1
-    if self.noResponse > 100 then
+    if self.noResponse > MAX_NO_RESPONSE then
       self.status = TrajectoryHandlerStatus.ConnectionLost
       self.logger.error('[TrajectoryHandler] Error: No response from robot!')
       return false
@@ -99,8 +118,25 @@ function TrajectoryHandler:update()
   self.noResponse = 0
 
   -- self.logger.debug('avail: %d', avail)
+  if self.status == TrajectoryHandlerStatus.Cancelling then
+    checkRobotStopped(self)
 
-  if not self.sampler:atEnd() then    -- if trajectory is not at end
+    self.reverseConnection:sendPoints({})   -- send zero count
+
+    if checkRobotStopped(self) then    -- wait for robot to stop
+      self.status = TrajectoryHandlerStatus.Canceled
+      return false
+    else
+
+      -- check limited number of cycles and generate error when robot does not hold
+      self.convergenceCycle = self.convergenceCycle + 1
+      if self.convergenceCycle >= self.maxConvergenceCycles then
+        error(string.format('[TrajectoryHandler] Error: Robot did not stop after %d convergence cycles. Goal distance: %f; |qd_actual|: %f;', self.maxConvergenceCycles, goal_distance, qd_actual:norm()))
+      end
+
+    end
+
+  elseif not self.sampler:atEnd() then    -- if trajectory is not at end
     self.status = TrajectoryHandlerStatus.Streaming
 
     local pts = self.sampler:generateNextPoints(math.min(self.maxBuffering, avail))    -- send new trajectory points via reverse conncection
@@ -109,6 +145,7 @@ function TrajectoryHandler:update()
   else  -- all servo points have been sent, wait for robot to empty its queue
 
     self.reverseConnection:sendPoints({})   -- send zero count
+    checkRobotStopped(self)
     if avail >= self.ringSize-1 and (reachedGoal(self) or not self.waitCovergence) then      -- when buffer is empty we are done
       self.status = TrajectoryHandlerStatus.Completed
       return false
