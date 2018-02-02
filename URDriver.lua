@@ -325,9 +325,20 @@ function URDriver:cancelCurrentTrajectory()
   self.logger.info('[URDriver] Cancelling trajectory execution.')
   local traj = self.currentTrajectory.traj
   local handler = self.currentTrajectory.handler
-  handler:cancel()
-  if traj.cancel ~= nil then
-    traj:cancel()        -- cancel callback (e.g. enter canel requested state)
+
+  local robotReady = self.realtimeState:isRobotReady()
+  if not robotReady then
+    -- if robot is not ready we abort the trajectory immediately
+    if traj.abort ~= nil then
+      traj:abort()        -- abort callback
+    end
+    self.currentTrajectory = nil
+  else
+    -- otherwise we try to bring the robot gracefully to a standstill
+    handler:cancel()
+    if traj.cancel ~= nil then
+      traj:cancel()        -- cancel callback (e.g. enter canel requested state)
+    end
   end
 end
 
@@ -448,8 +459,8 @@ local function dispatchTrajectory(self)
     local traj = self.currentTrajectory.traj
     local handler = self.currentTrajectory.handler
 
-    -- check if trajectory execution is still desired (e.g. not canceled)
-    if robotReady and (traj.proceed == nil or traj:proceed()) then
+    -- check if trajectory execution is still desired or if we are cancelling (waiting for robot stop)
+    if robotReady and (handler.status == TrajectoryHandlerStatus.Cancelling or traj.proceed == nil or traj:proceed()) then
 
       -- execute main update call
       local ok, err = pcall(function() handler:update() end)
