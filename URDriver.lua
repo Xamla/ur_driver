@@ -29,6 +29,8 @@ local DEFAULT_GAIN = 1200
 local DEFAULT_SCRIPT_TEMPLATE_FILENAME = 'driver.urscript'
 local DEFAULT_MAX_SINGLE_POINT_TRAJECTORY_DISTANCE = 0.5      -- max allowed distance of single point trajectory target relative to current joint pos
 local DEFAULT_MAX_CONVERGENCE_CYCLES = 150
+local DEFAULT_GOAL_CONVERGENCE_POSITION_THRESHOLD = 0.005 -- in rad
+local DEFAULT_GOAL_CONVERGENCE_VELOCITY_THRESHOLD = 0.01 -- in rad/s
 
 
 -- these values are used for a basic trajectory sanity check (in validateTrajectory)
@@ -73,6 +75,8 @@ function URDriver:__init(cfg, logger, heartbeat)
   self.maxSinglePointTrajectoryDistance = cfg.maxSinglePointTrajectoryDistance or DEFAULT_MAX_SINGLE_POINT_TRAJECTORY_DISTANCE
   self.jointNamePrefix = cfg.jointNamePrefix
   self.maxConvergenceCycles = cfg.maxConvergenceCycles or DEFAULT_MAX_CONVERGENCE_CYCLES
+  self.goalPositionThreshold = cfg.goalPositionThreshold or DEFAULT_GOAL_CONVERGENCE_POSITION_THRESHOLD
+  self.goalVelocityThreshold = cfg.goalVelocityThreshold or DEFAULT_GOAL_CONVERGENCE_VELOCITY_THRESHOLD
 
   -- read script template
   local scriptFilename = cfg.scriptTemplateFilename or DEFAULT_SCRIPT_TEMPLATE_FILENAME
@@ -312,6 +316,8 @@ function URDriver:createTrajectoryHandler(traj, flush, waitCovergence, maxBuffer
     waitCovergence,
     maxBuffering,
     self.maxConvergenceCycles,
+    self.goalPositionThreshold,
+    self.goalVelocityThreshold,
     self.logger
   )
 end

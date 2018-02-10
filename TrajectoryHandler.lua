@@ -3,10 +3,9 @@ require 'TrajectorySampler'
 local ur5 = require 'ur5_env'
 
 
-local GOAL_CONVERGENCE_POSITION_THRESHOLD = 0.00075   -- in rad
-local GOAL_CONVERGENCE_VELOCITY_THRESHOLD = 0.001     -- in rad/s
 local MAX_NO_RESPONSE = 100   -- number of cycles without avail count message from driver before entering ConnectionLost state
 local STOP_CYCLE_COUNT = 3  -- number of cycles with v < threshold before robot is considered stopped
+
 
 local TrajectoryHandlerStatus = {
   ProtocolError = -3,
@@ -24,9 +23,14 @@ ur5.TrajectoryHandlerStatus = TrajectoryHandlerStatus
 local TrajectoryHandler = torch.class('TrajectoryHandler')
 
 
-function TrajectoryHandler:__init(ringSize, servoTime, realtimeState, reverseConnection, traj, flush, waitCovergence, maxBuffering, maxConvergenceCycles, logger)
-  assert(reverseConnection, "[TrajectoryHandler] Argument 'reverseConnection' must not be nil.")
-  assert(maxConvergenceCycles > 0, "[TrajectoryHandler] Argument 'maxConvergenceCycles' must be greater than zero.")
+function TrajectoryHandler:__init(ringSize, servoTime, realtimeState, reverseConnection, traj, flush, waitCovergence,
+  maxBuffering, maxConvergenceCycles, goalPositionThreshold, goalVelocityThreshold, logger)
+
+  assert(reverseConnection, "Argument 'reverseConnection' must not be nil.")
+  assert(maxConvergenceCycles > 0, "Argument 'maxConvergenceCycles' must be greater than zero.")
+  assert(goalPositionThreshold > 0, "Argument 'goalPositionThreshold' must be greater than zero.")
+  assert(goalVelocityThreshold >= 0, "Argument 'goalVelocityThreshold' must be greater than or equal zero."
+
   self.ringSize = ringSize
   self.realtimeState = realtimeState
   self.reverseConnection = reverseConnection
@@ -38,6 +42,8 @@ function TrajectoryHandler:__init(ringSize, servoTime, realtimeState, reverseCon
   self.status = TrajectoryHandlerStatus.Fresh
   self.sampler = TrajectorySampler(traj, servoTime)
   self.maxConvergenceCycles = maxConvergenceCycles
+  self.goalPositionThreshold = goalPositionThreshold
+  self.goalVelocityThreshold = goalVelocityThreshold
   self.noResponse = 0
   self.convergenceCycle = 0
   self.noMotionCycle = 0
@@ -59,7 +65,7 @@ end
 
 local function checkRobotStopped(self)
   local qd_actual = self.realtimeState.qd_actual
-  if qd_actual:norm() < GOAL_CONVERGENCE_VELOCITY_THRESHOLD then
+  if qd_actual:norm() < self.goalVelocityThreshold then
     self.noMotionCycle = self.noMotionCycle + 1
   else
     self.noMotionCycle = 0
@@ -82,7 +88,7 @@ local function reachedGoal(self)
     error(string.format('[TrajectoryHandler] Did not reach goal after %d convergence cycles. Goal distance: %f; |qd_actual|: %f;', self.maxConvergenceCycles, goal_distance, qd_actual:norm()))
   end
 
-  return isRobotStopped(self) and goal_distance < GOAL_CONVERGENCE_POSITION_THRESHOLD
+  return isRobotStopped(self) and goal_distance < self.goalPositionThreshold
 end
 
 

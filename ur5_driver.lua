@@ -364,6 +364,8 @@ local function main()
   cmd:option('-controller-name',       'ur5',              'emulation of ROS position controller')
   cmd:option('-joint-name-prefix',        '',              'name prefix of published joints')
   cmd:option('-max-convergence-cycles',  150,              'max number of cycles to wait for goal convergence')
+  cmd:option('-goal-position-threshold', 0.005,            'goal convergence position threshold (in rad)')
+  cmd:option('-goal-velocity-threshold', 0.01,             'goal convergence velocity threshold (in rad/s)')
   cmd:option('-use-cb2', false, 'Use CB2 controller instead of CB3')
   local opt = cmd:parse(arg or {})
 
@@ -403,6 +405,8 @@ local function main()
     maxIdleCycles           = opt['max-idle-cycles'],
     maxSinglePointTrajectoryDistance = opt['max-single-point-trajectory-distance'],
     maxConvergenceCycles    = opt['max-convergence-cycles'],
+    goalPositionThreshold   = opt['goal-position-threshold'],
+    goalVelocityThreshold   = opt['goal-velocity-threshold'],
     jointNamePrefix         = opt['joint-name-prefix'],
     useCb2                  = opt['use-cb2']
   }
@@ -426,6 +430,8 @@ local function main()
   overrideInputArguments('maxIdleCycles', nh:getParamInt('max_idle_cycles'))
   overrideInputArguments('maxSinglePointTrajectoryDistance', nh:getParamDouble('max_single_point_trajectory_distance'))
   overrideInputArguments('maxConvergenceCycles', nh:getParamInt('max_convergence_cycles'))
+  overrideInputArguments('goalPositionThreshold', nh:getParamDouble('goal_position_threshold'))
+  overrideInputArguments('goalVelocityThreshold', nh:getParamDouble('goal_velocity_threshold'))
   overrideInputArguments('jointNamePrefix', nh:getParamString('joint_name_prefix'))
   overrideInputArguments('useCb2', nh:getParamBool('use_cb2'))
 
