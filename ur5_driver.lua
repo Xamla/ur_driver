@@ -129,6 +129,16 @@ local function decodeJointTrajectoryMsg(trajectory)
 end
 
 
+local function isTerminalGoalStatus(status)
+  return status == GoalStatus.PREEMPTED or
+    status == GoalStatus.SUCCEEDED or
+    status == GoalStatus.ABORTED or
+    status == GoalStatus.REJECTED or
+    status == GoalStatus.RECALLED or
+    status == GoalStatus.LOST
+end
+
+
 -- Called when new follow trajectory action goal is received.
 -- http://docs.ros.org/fuerte/api/control_msgs/html/msg/FollowJointTrajectoryActionGoal.html
 local function FollowJointTrajectory_Goal(goalHandle)
@@ -143,27 +153,41 @@ local function FollowJointTrajectory_Goal(goalHandle)
     time = time, pos = pos, vel = vel, acc = acc,
     goalHandle = goalHandle, goal = g,
     accept = function(self)
-      if goalHandle:getGoalStatus().status == GoalStatus.PENDING then
+      local status = goalHandle:getGoalStatus().status
+      if status == GoalStatus.PENDING then
         goalHandle:setAccepted('Starting trajectory execution')
         return true
       else
-        ros.WARN('Status of queued trajectory is not pending but %d.', goalHandle:getGoalStatus().status)
+        ros.WARN('Status of queued trajectory is not pending but %d.', status)
         return false
       end
     end,
     proceed = function(self)
-      if goalHandle:getGoalStatus().status == GoalStatus.ACTIVE then
+      local status = goalHandle:getGoalStatus().status
+      if status == GoalStatus.ACTIVE then
         return true
       else
-        ros.WARN('Goal status of current trajectory no longer ACTIVE (actual: %d).', goalHandle:getGoalStatus().status)
+        ros.WARN('Goal status of current trajectory no longer ACTIVE (actual: %d).', status)
         return false
       end
     end,
+    -- cancel signals the begin of a cancel/stop operation (to enter the preempting action state)
     cancel = function(self)
-      goalHandle:setCancelRequested()
+      local status = goalHandle:getGoalStatus().status
+      if status == GoalStatus.PENDING or status == GoalStatus.ACTIVE then
+        goalHandle:setCancelRequested()
+      end
     end,
+    -- abort signals end of trajectory processing
     abort = function(self, msg)
-      goalHandle:setAborted(nil, msg or 'Error')
+      local status = goalHandle:getGoalStatus().status
+      if status == GoalStatus.ACTIVE or status == GoalStatus.PREEMPTING then
+        goalHandle:setAborted(nil, msg or 'Error')
+      elseif status == GoalStatus.PENDING or status == GoalStatus.RECALLING then
+        goalHandle:setCanceled(nil, msg or 'Error')
+      elseif not isTerminalGoalStatus(status) then
+        ros.ERROR('[abort trajectory] Unexpected goal status: %d', status)
+      end
     end,
     completed = function(self)
       local r = goalHandle:createResult()
