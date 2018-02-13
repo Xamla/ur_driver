@@ -277,7 +277,7 @@ local function printSplash()
  /   / /_/ / / / / / / / /_/ /
 /_/|_\__,_/_/ /_/ /_/_/\__,_/
 
-Xamla UR5 ROS driver v1.0
+Xamla UR ROS driver v1.1
 ]])
 end
 

@@ -6,6 +6,7 @@ require 'ReverseConnection'
 require 'TrajectoryHandler'
 require 'RealtimeState'
 local ur5 = require 'ur5_env'
+local printf = ur5.printf
 
 
 local URStreamState = ur5.URStreamState
@@ -90,46 +91,105 @@ local function createRealtimeStream(self)
 end
 
 
-local function createSecondaryClientStream(self)
-  local function readVersionMessage(reader)
-    local project_name_length = reader:readUInt8()
+local function initializeRobotMode(self)
+  self.robot_mode = {
+    isRobotConnected = false,
+    isRealRobotEnabled = false,
+    isPowerOnRobot = false,
+    isEmergencyStopped = false,
+    isSecurityStopped = false,
+    isProgramRunning = false,
+    isProgramPaused = false,
+    robotMode = 0
+  }
+end
 
-    local name_offset = reader.offset
-    reader:setOffset(name_offset + project_name_length)
-    local project_name = ffi.string(reader.data + name_offset, project_name_length)
 
-    local major = reader:readUInt8()
-    local minor = reader:readUInt8()
-    local revision = reader:readInt32()
+local function readRobotModeData(self, reader)
+  local timestamp = reader:readUInt64()
+  local mode = self.robot_mode
+  mode.isRobotConnected = reader:readUInt8() ~= 0
+  mode.isRealRobotEnabled = reader:readUInt8() ~= 0
+  mode.isPowerOnRobot = reader:readUInt8() ~= 0
+  mode.isEmergencyStopped = reader:readUInt8() ~= 0
+  mode.isSecurityStopped = reader:readUInt8() ~= 0
+  mode.isProgramRunning = reader:readUInt8() ~= 0
+  mode.isProgramPaused = reader:readUInt8() ~= 0
+  mode.robotMode = reader:readUInt8()
+end
 
-    self.robot_version = {
-      major, minor, revision, project_name,
-      major = major,
-      minor = minor,
-      revision = revision,
-      project_name
-    }
 
-    self.logger.info("Robot version: %s %d.%d rev. %d", project_name, major, minor, revision)
-  end
+local function readRobotState(self, reader)
+  -- decode all packages
 
-  local function readRobotMessage(reader)
-    local timestamp = reader:readUInt64()
-    local source = reader:readUInt8()
-    local robotMessageType = reader:readUInt8()
-    if robotMessageType == 3 then
-      readVersionMessage(reader)
+  while reader.offset < reader.length do
+
+    local begin_of_package = reader.offset
+    local package_size = reader:readInt32()
+    if package_size < 5 or begin_of_package + package_size > reader.length then
+      self.logger.error('Invalid package size in robot state: %d (begin of package: %d; buffer length: %d)', package_size, begin_of_package, reader.length)
+      break
     end
+    local end_of_package = begin_of_package + package_size
+    local package_type = reader:readUInt8()
+
+    if package_type == 0 then
+      readRobotModeData(self, reader)
+    end
+
+    reader:setOffset(end_of_package)
+
   end
+
+end
+
+
+local function readVersionMessage(self, reader)
+  local project_name_length = reader:readUInt8()
+
+  local name_offset = reader.offset
+  reader:setOffset(name_offset + project_name_length)
+  local project_name = ffi.string(reader.data + name_offset, project_name_length)
+
+  local major = reader:readUInt8()
+  local minor = reader:readUInt8()
+  local revision = reader:readInt32()
+
+  self.robot_version = {
+    major, minor, revision, project_name,
+    major = major,
+    minor = minor,
+    revision = revision,
+    project_name = project_name
+  }
+
+  self.logger.info("Robot version: %s %d.%d rev. %d", project_name, major, minor, revision)
+end
+
+
+local function readRobotMessage(self, reader)
+  local timestamp = reader:readUInt64()
+  local source = reader:readUInt8()
+  local robotMessageType = reader:readUInt8()
+  if robotMessageType == 3 then
+    readVersionMessage(self, reader)
+  end
+end
+
+
+local function createClientStream(self)
+  initializeRobotMode(self)
 
   local function handleClientInterfacePacket(reader)
     local message_size = reader:readUInt32()
     local message_type = reader:readUInt8()
-    if message_type == 20 then
-      readRobotMessage(reader)
+    if message_type == 16 then
+      readRobotState(self, reader)
+    elseif message_type == 20 then
+      readRobotMessage(self, reader)
     end
   end
-  self.secondaryClientStream = URStream(handleClientInterfacePacket, MAX_CLIENT_INTERFACE_PACKET_SIZE, self.logger)
+  self.clientStream = URStream(handleClientInterfacePacket, MAX_CLIENT_INTERFACE_PACKET_SIZE, self.logger)
 end
 
 
@@ -156,7 +216,7 @@ function URDriver:__init(cfg, logger, heartbeat)
 
   self.realtimeState = RealtimeState()
 
-  createSecondaryClientStream(self)   -- get robot version info
+  createClientStream(self)   -- get robot version info
   createRealtimeStream(self)          -- get robot mode and joint details
 
   self.syncCallbacks = {}
@@ -278,8 +338,8 @@ end
 
 
 function URDriver:poll()
-  if self.secondaryClientStream:getState() == URStreamState.Connected then
-    self.secondaryClientStream:read()
+  if self.clientStream:getState() == URStreamState.Connected then
+    self.clientStream:read()
   end
 
   if self.realtimeStream:getState() ~= URStreamState.Connected then
@@ -407,7 +467,7 @@ function URDriver:cancelCurrentTrajectory()
   local traj = self.currentTrajectory.traj
   local handler = self.currentTrajectory.handler
 
-  local robotReady = self.realtimeState:isRobotReady()
+  local robotReady = self:isRobotReady()
   if not robotReady then
     -- if robot is not ready we abort the trajectory immediately
     if traj.abort ~= nil then
@@ -425,7 +485,7 @@ end
 
 
 local function dispatchTrajectory(self)
-  local robotReady = self.realtimeState:isRobotReady()
+  local robotReady = self:isRobotReady()
 
   if not robotReady then
     if #self.trajectoryQueue > 0 then
@@ -587,17 +647,62 @@ local function driverCore(self)
 end
 
 
-function URDriver:spin()
-  if self.realtimeState:isRobotReady() then
-    self.heartbeat:updateStatus(self.heartbeat.GO, "")
-  else
-    self.heartbeat:updateStatus(self.heartbeat.INTERNAL_ERROR, "Robot is not ready.")
+function URDriver:isRobotReady()
+  local client_state = self.clientStream:getState()
+  local realtime_state = self.realtimeStream:getState()
+
+  if client_state ~= URStreamState.Connected then
+    return false, string.format('Client network interface not connected (%s).', URStreamState[client_state])
   end
 
-  if self.secondaryClientStream:getState() == URStreamState.Disconnected then
-    self.logger.info('SecondaryClient not connected, trying to connect...')
-    if self.secondaryClientStream:connect(self.hostname, SECONDARY_CLIENT_PORT) then
-      self.logger.info('SecondaryClient connected.')
+  if realtime_state ~= URStreamState.Connected then
+    return false, string.format('Realtime stream not connected (%s).', URStreamState[realtime_state])
+  end
+
+  if self.robot_version == nil then
+    return false, 'Still waiting for robot version message.'
+  end
+
+  if self.robot_mode.isEmergencyStopped then
+    return false, 'Emergency stopped'
+  end
+
+  if self.robot_mode.isSecurityStopped then
+    return false, 'Security stopped'
+  end
+
+  if not self.robot_mode.isRobotConnected then
+    return false, 'Robot not connected'
+  end
+
+  if not self.robot_mode.isPowerOnRobot then
+    return false, 'Robot power off'
+  end
+
+  if not self.realtimeState:isRobotReady() then
+    return false, 'Robot is not ready.'
+  end
+
+  return true, string.format("%s %d.%d rev %d",
+    self.robot_version.project_name,
+    self.robot_version.major,
+    self.robot_version.minor,
+    self.robot_version.revision)
+end
+
+
+function URDriver:spin()
+  local ready, status_text = self:isRobotReady()
+  if ready then
+    self.heartbeat:updateStatus(self.heartbeat.GO, status_text)
+  else
+    self.heartbeat:updateStatus(self.heartbeat.INTERNAL_ERROR, status_text)
+  end
+
+  if self.clientStream:getState() == URStreamState.Disconnected then
+    self.logger.info('client not connected, trying to connect...')
+    if self.clientStream:connect(self.hostname, PRIMARY_CLIENT_PORT) then
+      self.logger.info('client connected.')
     end
   end
 
@@ -637,11 +742,11 @@ function URDriver:spin()
     ]]
   end
 
-  if self.secondaryClientStream:getState() == URStreamState.Error then
+  if self.clientStream:getState() == URStreamState.Error then
     self.robot_version = nil
     self.realtimeState:invalidate()
-    self.secondaryClientStream:close()
-    createSecondaryClientStream(self)
+    self.clientStream:close()
+    createClientStream(self)
   end
 
   if not ok or self.realtimeStream:getState() == URStreamState.Error or
@@ -684,5 +789,5 @@ end
 
 function URDriver:shutdown()
   self.realtimeStream:close()
-  self.secondaryClientStream:close()
+  self.clientStream:close()
 end

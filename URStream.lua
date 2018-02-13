@@ -8,7 +8,7 @@ local ur5 = require 'ur5_env'
 local URStream = torch.class('URStream')
 
 
-local STASH_SIZE = 2048
+local STASH_SIZE = 4096
 local HEADER_SIZE = 4
 local CONNECT_TIMEOUT = 1.0
 local RECONNECT_WAIT = 0.1
@@ -19,7 +19,12 @@ local RECEIVE_BUFFER_SIZE = 4096
 local URStreamState = {
   Disconnected = 1,
   Connected = 2,
-  Error = 3
+  Error = 3,
+
+  -- toString helper
+  [1] = 'Disconnected',
+  [2] = 'Connected',
+  [3] = 'Error'
 }
 ur5.URStreamState = URStreamState
 
@@ -117,7 +122,7 @@ local function processReceivedBlock(self, block)
         return false
       end
     elseif self.stream_state == ReadState.PAYLOAD then
-      local payload_reader = ros.StorageReader(self.stash:storage())
+      local payload_reader = ros.StorageReader(self.stash:storage(), 0, self.stash_offset)
       convertToBigEndianReader(payload_reader)
       self.packet_handler_fn(payload_reader)
       self:resetStash()

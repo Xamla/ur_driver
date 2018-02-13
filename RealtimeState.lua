@@ -42,6 +42,8 @@ function RealtimeState:__init()
   self.digital_output_bits = 0                            -- Digital outputs
   self.program_state = 0                                  -- Program state
   self.unused = torch.DoubleTensor(15)
+  self.major = 0
+  self.minor = 0
   self:invalidate()
 end
 
@@ -60,6 +62,10 @@ end
 
 
 function RealtimeState:isRobotReady()
+  if self.major < 3 then
+    return self.valid
+  end
+
   return self.valid and self.robot_mode == ur5.ROBOT_MODE.RUNNING and self.safety_mode == ur5.SAFETY_MODE.NORMAL
 end
 
@@ -165,6 +171,8 @@ function RealtimeState:read(reader, robot_version)
   end
 
   local major, minor = robot_version.major, robot_version.minor
+  self.major = major
+  self.minor = minor
 
   if major >= 3 then
     decodeCB3(self, reader, major, minor)
