@@ -4,7 +4,7 @@
   <version>1.1.0</version>
   <description>Xamla Rosvita driver for Universal Robots (UR3/UR5/UR10)</description>
   <maintainer email="andreas.koepf@xamla.com">Andreas Köpf</maintainer>
-  <license>BSD</license>
+  <license>MIT</license>
   <url type="website">http://www.xamla.com/</url>
   <author email="andreas.koepf@xamla.com">Andreas Köpf</author>
   <buildtool_depend>catkin</buildtool_depend>
