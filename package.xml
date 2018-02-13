@@ -2,7 +2,7 @@
 <package>
   <name>ur_driver</name>
   <version>1.1.0</version>
-  <description>Xamla Rosvita ur_driver for Universal Robots UR3/UR5/UR10</description>
+  <description>Xamla Rosvita driver for Universal Robots (UR3/UR5/UR10)</description>
   <maintainer email="andreas.koepf@xamla.com">Andreas Köpf</maintainer>
   <license>BSD</license>
   <url type="website">http://www.xamla.com/</url>
@@ -12,6 +12,7 @@
   <build_depend>std_msgs</build_depend>
   <run_depend>roscpp</run_depend>
   <run_depend>std_msgs</run_depend>
-  <!-- The export tag contains other, unspecified, tags -->
-  <export />
+  <export>
+    <!-- The export tag contains other, unspecified, tags -->
+  </export>
 </package>

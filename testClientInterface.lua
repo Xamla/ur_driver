@@ -2,8 +2,8 @@ local ffi = require 'ffi'
 local torch = require 'torch'
 local ros = require 'ros'
 require 'URStream'
-local ur5 = require 'ur5_env'
-local printf = ur5.printf
+local ur = require 'ur_env'
+local printf = ur.printf
 
 
 local logger = {
@@ -24,7 +24,7 @@ local function readVersionMessage(reader)
   local major = reader:readUInt8()
   local minor = reader:readUInt8()
   local revision = reader:readInt32()
-  
+
   printf("Version decoded: '%s' %d.%d rev: %d", project_name, major, minor, revision)
 
 end
@@ -48,7 +48,7 @@ local function decodePacket(reader)
 end
 
 
-local URStreamState = ur5.URStreamState
+local URStreamState = ur.URStreamState
 local client = URStream(decodePacket, 4096, logger)
 
 

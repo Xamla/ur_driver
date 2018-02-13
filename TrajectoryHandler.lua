@@ -1,6 +1,6 @@
 local torch = require 'torch'
 require 'TrajectorySampler'
-local ur5 = require 'ur5_env'
+local ur = require 'ur_env'
 
 
 local MAX_NO_RESPONSE = 100   -- number of cycles without avail count message from driver before entering ConnectionLost state
@@ -17,7 +17,7 @@ local TrajectoryHandlerStatus = {
   Cancelling = 3,     -- stop request has been sent to robot, waiting for zero velocity
   Completed = 1000,
 }
-ur5.TrajectoryHandlerStatus = TrajectoryHandlerStatus
+ur.TrajectoryHandlerStatus = TrajectoryHandlerStatus
 
 
 local TrajectoryHandler = torch.class('TrajectoryHandler')
@@ -38,7 +38,7 @@ function TrajectoryHandler:__init(ringSize, servoTime, realtimeState, reverseCon
   self.flush = flush
   self.waitCovergence = waitCovergence
   self.maxBuffering = maxBuffering or ringSize
-  self.logger = logger or ur5.DEFAULT_LOGGER
+  self.logger = logger or ur.DEFAULT_LOGGER
   self.status = TrajectoryHandlerStatus.Fresh
   self.sampler = TrajectorySampler(traj, servoTime)
   self.maxConvergenceCycles = maxConvergenceCycles

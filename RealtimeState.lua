@@ -1,5 +1,5 @@
 local torch = require 'torch'
-local ur5 = require 'ur5_env'
+local ur = require 'ur_env'
 
 
 local RealtimeState = torch.class('RealtimeState')
@@ -66,7 +66,7 @@ function RealtimeState:isRobotReady()
     return self.valid
   end
 
-  return self.valid and self.robot_mode == ur5.ROBOT_MODE.RUNNING and self.safety_mode == ur5.SAFETY_MODE.NORMAL
+  return self.valid and self.robot_mode == ur.ROBOT_MODE.RUNNING and self.safety_mode == ur.SAFETY_MODE.NORMAL
 end
 
 
@@ -76,7 +76,7 @@ end
 
 
 local function decodeCB2(self, reader, major, minor)
-  self.safety_mode = ur5.SAFETY_MODE.NORMAL
+  self.safety_mode = ur.SAFETY_MODE.NORMAL
   local len = reader:readUInt32()
   if len < 764 then
     error(string.format("Wrong length of message on RT interface: %i", len))

@@ -1,7 +1,7 @@
 local torch = require 'torch'
 local ffi = require 'ffi'
 local ros = require 'ros'
-local ur5 = require 'ur5_env'
+local ur = require 'ur_env'
 local bigEndianAdapter = require 'BigEndianAdapter'
 
 
@@ -15,7 +15,7 @@ local ReverseConnection = torch.class('ReverseConnection')
 function ReverseConnection:__init(socket, multJoint, logger)
   self.socket = socket
   self.multJoint = multJoint
-  self.logger = logger or ur5.DEFAULT_LOGGER
+  self.logger = logger or ur.DEFAULT_LOGGER
   socket:setoption('tcp-nodelay', true)
   socket:settimeout(TIMEOUT, 't')
   self.reader = bigEndianAdapter(ros.StorageReader(torch.ByteStorage(4)))
@@ -51,7 +51,7 @@ function ReverseConnection:idle(op)
   for i=1,MAX_READ_AVAIL_RETRIES do
     local avail, err = self:readAvailable()
     if avail ~= nil then
-      self.socket:send(ur5.serializeInt32Array({op}))
+      self.socket:send(ur.serializeInt32Array({op}))
       return avail
     elseif err ~= 'timeout' then
       self.error = true
@@ -75,7 +75,7 @@ end
 
 function ReverseConnection:close()
   if not self.error then
-    self.socket:send(ur5.serializeInt32Array({-1}))   -- send stop message
+    self.socket:send(ur.serializeInt32Array({-1}))   -- send stop message
   end
   self.socket:shutdown('send')
   self.socket:close()
@@ -102,7 +102,7 @@ end
 
 function ReverseConnection:sendPoints(pts)
   self.idleCycles = 0
-  local ok = self.socket:send(ur5.serializeInt32Array({#pts}))
+  local ok = self.socket:send(ur.serializeInt32Array({#pts}))
   if not ok then
     self.logger.error('[ReverseConnection] Send error')
     self.error = true
@@ -119,7 +119,7 @@ function ReverseConnection:sendPoints(pts)
     end
     q_[7] = jointChecksum(q_)   -- add checksum
 
-    local ok = self.socket:send(ur5.serializeInt32Array(q_))
+    local ok = self.socket:send(ur.serializeInt32Array(q_))
     if not ok then
       self.logger.error('[ReverseConnection] Send error')
       self.error = true

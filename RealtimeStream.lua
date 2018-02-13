@@ -2,7 +2,7 @@ local torch = require 'torch'
 local ros = require 'ros'
 local socket = require 'socket'
 local convertToBigEndianReader = require 'BigEndianAdapter'
-local ur5 = require 'ur5_env'
+local ur = require 'ur_env'
 
 
 local RealtimeStream = torch.class('RealtimeStream')
@@ -23,7 +23,7 @@ local RealtimeStreamState = {
   Connected = 2,
   Error = 3
 }
-ur5.RealtimeStreamState = RealtimeStreamState
+ur.RealtimeStreamState = RealtimeStreamState
 
 
 local ReadState = {
@@ -36,7 +36,7 @@ local ReadState = {
 --- realtimeState is target that receives state updates
 function RealtimeStream:__init(realtimeState, logger)
   self.realtimeState = realtimeState
-  self.logger = logger or ur5.DEFAULT_LOGGER
+  self.logger = logger or ur.DEFAULT_LOGGER
   self.stash_offset = 0
   self.stash = torch.ByteTensor(STASH_SIZE)
   self.stash_reader = ros.StorageReader(self.stash:storage())

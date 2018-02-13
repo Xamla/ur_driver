@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<launch>
+  <node name="ur_driver" pkg="ur_driver" type="ur_driver.lua" cwd="node" output="screen">
+  </node>
+</launch>
+

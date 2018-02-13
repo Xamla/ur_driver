@@ -2,7 +2,7 @@ local torch = require 'torch'
 local ros = require 'ros'
 local socket = require 'socket'
 local convertToBigEndianReader = require 'BigEndianAdapter'
-local ur5 = require 'ur5_env'
+local ur = require 'ur_env'
 
 
 local URStream = torch.class('URStream')
@@ -26,7 +26,7 @@ local URStreamState = {
   [2] = 'Connected',
   [3] = 'Error'
 }
-ur5.URStreamState = URStreamState
+ur.URStreamState = URStreamState
 
 
 local ReadState = {
@@ -39,7 +39,7 @@ local ReadState = {
 function URStream:__init(packet_handler_fn, max_package_size, logger)
   self.packet_handler_fn = packet_handler_fn
   self.max_package_size = max_package_size
-  self.logger = logger or ur5.DEFAULT_LOGGER
+  self.logger = logger or ur.DEFAULT_LOGGER
   self.stash_offset = 0
   self.stash = torch.ByteTensor(STASH_SIZE)
   self.stash_reader = ros.StorageReader(self.stash:storage())

@@ -1,6 +1,0 @@
-<?xml version="1.0"?>
-<launch>
-  <node name="ur5_driver" pkg="ur5_driver" type="ur5_driver.lua" cwd="node" output="screen">
-  </node>
-</launch>
-

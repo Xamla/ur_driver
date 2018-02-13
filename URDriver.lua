@@ -5,12 +5,12 @@ require 'URStream'
 require 'ReverseConnection'
 require 'TrajectoryHandler'
 require 'RealtimeState'
-local ur5 = require 'ur5_env'
-local printf = ur5.printf
+local ur = require 'ur_env'
+local printf = ur.printf
 
 
-local URStreamState = ur5.URStreamState
-local TrajectoryHandlerStatus = ur5.TrajectoryHandlerStatus
+local URStreamState = ur.URStreamState
+local TrajectoryHandlerStatus = ur.TrajectoryHandlerStatus
 
 
 -- constants
@@ -194,7 +194,7 @@ end
 
 
 function URDriver:__init(cfg, logger, heartbeat)
-  self.logger = logger or ur5.DEFAULT_LOGGER
+  self.logger = logger or ur.DEFAULT_LOGGER
   self.heartbeat = heartbeat
 
   -- apply configuration
@@ -246,10 +246,10 @@ function URDriver:validateTrajectory(traj)
     -- check joints
     for j=1,6 do
       if pos[{i,j}] < JOINT_POSITION_LIMITS[{j,1}] or pos[{i,j}] > JOINT_POSITION_LIMITS[{j,2}] then
-        return false, string.format("Waypoint %d: Position %f of joint '%s' lies outside control limits.", i, pos[{i,j}], ur5.JOINT_NAMES[j])
+        return false, string.format("Waypoint %d: Position %f of joint '%s' lies outside control limits.", i, pos[{i,j}], ur.JOINT_NAMES[j])
       end
       if vel[{i,j}] < JOINT_VELOCITY_LIMITS[{j,1}] or vel[{i,j}] > JOINT_VELOCITY_LIMITS[{j,2}] then
-        return false, string.format("Waypoint %d: Velocity %f of joint '%s' lies outside control limits.", i, vel[{i,j}], ur5.JOINT_NAMES[j])
+        return false, string.format("Waypoint %d: Velocity %f of joint '%s' lies outside control limits.", i, vel[{i,j}], ur.JOINT_NAMES[j])
       end
     end
   end
@@ -579,8 +579,8 @@ local function dispatchTrajectory(self)
       else
         self.logger.warn(
           '[URDriver] Robot is not ready (Robot mode: %s; Safety mode: %s). Closing reverse connection.',
-          ur5.ROBOT_MODE.tostring(self.realtimeState.robot_mode),
-          ur5.SAFETY_MODE.tostring(self.realtimeState.safety_mode)
+          ur.ROBOT_MODE.tostring(self.realtimeState.robot_mode),
+          ur.SAFETY_MODE.tostring(self.realtimeState.safety_mode)
         )
         self.reverseConnection:close()
         self.reverseConnection = nil
@@ -588,8 +588,8 @@ local function dispatchTrajectory(self)
     elseif #self.trajectoryQueue > 0 then
         self.logger.info(
           '[URDriver] Waiting for robot to become ready. (Robot mode: %s; Safety mode: %s)',
-          ur5.ROBOT_MODE.tostring(self.realtimeState.robot_mode),
-          ur5.SAFETY_MODE.tostring(self.realtimeState.safety_mode)
+          ur.ROBOT_MODE.tostring(self.realtimeState.robot_mode),
+          ur.SAFETY_MODE.tostring(self.realtimeState.safety_mode)
         )
     end
   end
@@ -735,8 +735,8 @@ function URDriver:spin()
 
     --[[
     local dbgState = string.format('Robot mode: %s; Safety mode: %s;',
-      ur5.ROBOT_MODE.tostring(self.realtimeState.robot_mode),
-      ur5.SAFETY_MODE.tostring(self.realtimeState.safety_mode)
+      ur.ROBOT_MODE.tostring(self.realtimeState.robot_mode),
+      ur.SAFETY_MODE.tostring(self.realtimeState.safety_mode)
     )
     self.logger.debug(dbgState)
     ]]

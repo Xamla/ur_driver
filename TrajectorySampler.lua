@@ -1,5 +1,5 @@
 local torch = require 'torch'
-local ur5 = require 'ur5_env'
+local ur = require 'ur_env'
 
 
 local TrajectorySampler = torch.class('TrajectorySampler')

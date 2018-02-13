@@ -2,10 +2,10 @@ local ros = require 'ros'
 local convertToBigEndianReader = require 'BigEndianAdapter'
 
 
-local ur5 = {}
+local ur = {}
 
 
-ur5.JOINT_NAMES = {
+ur.JOINT_NAMES = {
   "shoulder_pan_joint",
   "shoulder_lift_joint",
   "elbow_joint",
@@ -15,7 +15,7 @@ ur5.JOINT_NAMES = {
 }
 
 
-ur5.ROBOT_MODE = {
+ur.ROBOT_MODE = {
   DISCONNECTED = 0,
   CONFIRM_SAFETY = 1,
   BOOTING = 2,
@@ -28,7 +28,7 @@ ur5.ROBOT_MODE = {
 }
 
 
-ur5.CONTROL_MODE = {
+ur.CONTROL_MODE = {
   POSITION = 0,
   TEACH = 1,
   FORCE = 2,
@@ -36,7 +36,7 @@ ur5.CONTROL_MODE = {
 }
 
 
-ur5.JOINT_MODE = {
+ur.JOINT_MODE = {
   SHUTTING_DOWN = 236,
   PART_D_CALIBRATION = 237,
   BACKDRIVE = 238,
@@ -53,7 +53,7 @@ ur5.JOINT_MODE = {
 }
 
 
-ur5.SAFETY_MODE = {
+ur.SAFETY_MODE = {
   NORMAL = 1,
   REDUCED = 2,
   PROTECTIVE_STOP = 3,
@@ -83,18 +83,18 @@ local function createToString(obj)
 end
 
 
-ur5.ROBOT_MODE.tostring = createToString(ur5.ROBOT_MODE)
-ur5.CONTROL_MODE.tostring = createToString(ur5.CONTROL_MODE)
-ur5.JOINT_MODE.tostring = createToString(ur5.JOINT_MODE)
-ur5.SAFETY_MODE.tostring = createToString(ur5.SAFETY_MODE)
+ur.ROBOT_MODE.tostring = createToString(ur.ROBOT_MODE)
+ur.CONTROL_MODE.tostring = createToString(ur.CONTROL_MODE)
+ur.JOINT_MODE.tostring = createToString(ur.JOINT_MODE)
+ur.SAFETY_MODE.tostring = createToString(ur.SAFETY_MODE)
 
 
-function ur5.printf(...)
+function ur.printf(...)
   return print(string.format(...))
 end
 
 
-function ur5.serializeInt32Array(a, writer)
+function ur.serializeInt32Array(a, writer)
   local w = writer or convertToBigEndianReader(ros.StorageWriter())
   for i,x in ipairs(a) do
     w:writeInt32(x)
@@ -104,7 +104,7 @@ function ur5.serializeInt32Array(a, writer)
 end
 
 
-ur5.DEFAULT_LOGGER = {
+ur.DEFAULT_LOGGER = {
   debug = function(...)
     print('[DEBUG] ' .. string.format(...))
   end,
@@ -120,7 +120,7 @@ ur5.DEFAULT_LOGGER = {
 }
 
 
-function ur5.findIndex(t, condition)
+function ur.findIndex(t, condition)
   for i,v in ipairs(t) do
     if condition(v, i) then
       return i
@@ -130,14 +130,14 @@ function ur5.findIndex(t, condition)
 end
 
 
-function ur5.copyMapped(dst, src, map)
+function ur.copyMapped(dst, src, map)
   for k,v in pairs(map) do
     dst[k] = src[v]
   end
 end
 
 
-function ur5.indexOf(t, v)
+function ur.indexOf(t, v)
   for i=1,#t do
     if t[i] == v then
       return i
@@ -148,4 +148,4 @@ end
 
 
 
-return ur5
+return ur

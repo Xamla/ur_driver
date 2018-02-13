@@ -6,8 +6,8 @@ require 'URDriver'
 require 'ros.actionlib.ActionServer'
 local GoalStatus = require 'ros.actionlib.GoalStatus'
 local actionlib = ros.actionlib
-local ur5 = require 'ur5_env'
-local findIndex, copyMapped, indexOf  = ur5.findIndex, ur5.copyMapped, ur5.indexOf
+local ur = require 'ur_env'
+local findIndex, copyMapped, indexOf  = ur.findIndex, ur.copyMapped, ur.indexOf
 local xamal_sysmon = require 'xamla_sysmon'
 
 
@@ -36,7 +36,7 @@ local TrajectoryResultStatus = {
 local function createJointNames(prefix)
   prefix = prefix or ''
   local jointNames = {}
-  for i,n in ipairs(ur5.JOINT_NAMES) do
+  for i,n in ipairs(ur.JOINT_NAMES) do
     table.insert(jointNames, prefix .. n)
   end
   return jointNames
@@ -298,7 +298,7 @@ local function main()
   -- parse command line arguments
   local cmd = torch.CmdLine()
   cmd:text()
-  cmd:text('Xamla UR5 ROS driver')
+  cmd:text('Xamla Rosvita driver for Universal Robots (UR3/UR5/UR10)')
   cmd:text()
   cmd:option('-hostname',              'ur5',              'hostname of robot to connect to')
   cmd:option('-realtime-port',         30003,              'realtime port')
@@ -318,7 +318,7 @@ local function main()
 
   -- ros initialization
   local ros_init_options = 0
-  ros.init('ur5_driver', ros_init_options, rosArgs)
+  ros.init('ur_driver', ros_init_options, rosArgs)
   nh = ros.NodeHandle('~')
 
   local logger = {
