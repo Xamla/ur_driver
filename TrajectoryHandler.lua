@@ -29,7 +29,7 @@ function TrajectoryHandler:__init(ringSize, servoTime, realtimeState, reverseCon
   assert(reverseConnection, "Argument 'reverseConnection' must not be nil.")
   assert(maxConvergenceCycles > 0, "Argument 'maxConvergenceCycles' must be greater than zero.")
   assert(goalPositionThreshold > 0, "Argument 'goalPositionThreshold' must be greater than zero.")
-  assert(goalVelocityThreshold >= 0, "Argument 'goalVelocityThreshold' must be greater than or equal zero."
+  assert(goalVelocityThreshold >= 0, "Argument 'goalVelocityThreshold' must be greater than or equal zero.")
 
   self.ringSize = ringSize
   self.realtimeState = realtimeState

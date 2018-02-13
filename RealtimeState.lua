@@ -41,6 +41,7 @@ function RealtimeState:__init()
   self.actual_joint_voltage = torch.DoubleTensor(6)       -- Actual joint voltages
   self.digital_output_bits = 0                            -- Digital outputs
   self.program_state = 0                                  -- Program state
+  self.unused = torch.DoubleTensor(15)
   self:invalidate()
 end
 
@@ -68,9 +69,48 @@ function RealtimeState:invalidate()
 end
 
 
-function RealtimeState:read(reader)
+local function decodeCB2(self, reader, major, minor)
+  self.safety_mode = ur5.SAFETY_MODE.NORMAL
   local len = reader:readUInt32()
-  if len ~= 1060 then
+  if len < 764 then
+    error(string.format("Wrong length of message on RT interface: %i", len))
+  end
+
+  local t = reader:readUInt64()
+  self.time = t
+  unpackVector(self.q_target, reader, 6)
+  unpackVector(self.qd_target, reader, 6)
+  unpackVector(self.qdd_target, reader, 6)
+  unpackVector(self.i_target, reader, 6)
+  unpackVector(self.m_target, reader, 6)
+  unpackVector(self.q_actual, reader, 6)
+  unpackVector(self.qd_actual, reader, 6)
+  unpackVector(self.i_actual, reader, 6)
+  unpackVector(self.accelerometer, reader, 3)
+  unpackVector(self.unused, reader, 15)
+  unpackVector(self.tcp_force, reader, 6)
+  unpackVector(self.tool_vector_target, reader, 6)
+  unpackVector(self.tcp_speed_target, reader, 6)
+  self.digital_input_bits = reader:readUInt64()
+  unpackVector(self.motor_temps, reader, 6)
+  self.ctrl_timer = reader:readFloat64()
+  self.test_value = reader:readFloat64()
+  self.robot_mode = reader:readFloat64()
+  unpackVector(self.joint_control_modes, reader, 6)
+  self.valid = true
+end
+
+
+local function decodeCB3(self, reader, major, minor)
+  local len = reader:readUInt32()
+
+  if major == 3 and minor < 2 then
+
+    if len < 1044 then
+      error(string.format("Wrong length of message on RT interface: %i", len))
+    end
+
+  elseif len < 1060 then
     error(string.format("Wrong length of message on RT interface: %i", len))
   end
 
@@ -108,7 +148,29 @@ function RealtimeState:read(reader)
   self.masterboard_robot_voltage = reader:readFloat64()
   self.masterboard_robot_current = reader:readFloat64()
   unpackVector(self.actual_joint_voltage, reader, 6)
-  self.digital_output_bits = reader:readUInt64()
-  self.program_state = reader:readFloat64()
+
+  -- since 3.2
+  if major == 3 and minor >= 2 then
+    self.digital_output_bits = reader:readUInt64()
+    self.program_state = reader:readFloat64()
+  end
+
   self.valid = true
+end
+
+
+function RealtimeState:read(reader, robot_version)
+  if robot_version == nil then
+    return  -- wait for robot version to be received first
+  end
+
+  local major, minor = robot_version.major, robot_version.minor
+
+  if major >= 3 then
+    decodeCB3(self, reader, major, minor)
+  else
+    -- pre 3.0
+    decodeCB2(self, reader, major, minor)
+  end
+
 end

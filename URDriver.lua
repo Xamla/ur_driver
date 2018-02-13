@@ -1,15 +1,14 @@
 local torch = require 'torch'
 local sys = require 'sys'
 local ffi = require 'ffi'
-require 'RealtimeStream'
+require 'URStream'
 require 'ReverseConnection'
 require 'TrajectoryHandler'
-require 'RealtimeStateCB2'
 require 'RealtimeState'
 local ur5 = require 'ur5_env'
 
 
-local RealtimeStreamState = ur5.RealtimeStreamState
+local URStreamState = ur5.URStreamState
 local TrajectoryHandlerStatus = ur5.TrajectoryHandlerStatus
 
 
@@ -18,19 +17,26 @@ local MULT_JOINT = 1000000
 local MAX_SYNC_READ_TRIES = 250
 local DEFAULT_MAX_IDLE_CYCLES = 250      -- number of idle sync-cyles before reverse connection shutdown (that re-enables freedrive)
 local DEFAULT_HOSTNAME = 'ur5'
+local PRIMARY_CLIENT_PORT = 30001
+local SECONDARY_CLIENT_PORT = 30002
 local DEFAULT_REALTIME_PORT = 30003
 local DEFAULT_REVERSENAME = nil
-local DEFAULT_REVERSE_REALTIME_PORT = 0
+local DEFAULT_REVERSE_PORT = 0
 local DEFAULT_RING_SIZE = 64
 local DEFAULT_PATH_TOLERANCE = math.pi / 10
 local DEFAULT_LOOKAHEAD = 0.01
 local DEFAULT_SERVO_TIME = 0.008
 local DEFAULT_GAIN = 1200
-local DEFAULT_SCRIPT_TEMPLATE_FILENAME = 'driver.urscript'
 local DEFAULT_MAX_SINGLE_POINT_TRAJECTORY_DISTANCE = 0.5      -- max allowed distance of single point trajectory target relative to current joint pos
 local DEFAULT_MAX_CONVERGENCE_CYCLES = 150
 local DEFAULT_GOAL_CONVERGENCE_POSITION_THRESHOLD = 0.005 -- in rad
 local DEFAULT_GOAL_CONVERGENCE_VELOCITY_THRESHOLD = 0.01 -- in rad/s
+
+local MAX_CLIENT_INTERFACE_PACKET_SIZE = 4096
+local MAX_REALTIME_STREAM_PACKET_SIZE = 1060
+
+local CB2_SCRIPT_TEMPLATE_FILENAME = 'driverCB2.urscript'
+local CB3_SCRIPT_TEMPLATE_FILENAME = 'driverCB3.urscript'
 
 
 -- these values are used for a basic trajectory sanity check (in validateTrajectory)
@@ -57,6 +63,76 @@ local JOINT_VELOCITY_LIMITS = torch.Tensor({
 local URDriver = torch.class('URDriver')
 
 
+local function loadScriptTemplate(self)
+  assert(self.robot_version ~= nil, 'Robot version is unknown')
+
+  local scriptFilename
+  if self.robot_version.major < 3 then
+    scriptFilename = CB2_SCRIPT_TEMPLATE_FILENAME
+  else
+    scriptFilename = CB3_SCRIPT_TEMPLATE_FILENAME
+  end
+
+  -- read script template
+  local f = assert(io.open(scriptFilename, "r"))
+  local scriptTemplate = f:read("*all")
+  f:close()
+
+  return scriptTemplate
+end
+
+
+local function createRealtimeStream(self)
+  local function handleRealtimeStreamPacket(reader)
+    self.realtimeState:read(reader, self.robot_version)
+  end
+  self.realtimeStream = URStream(handleRealtimeStreamPacket, MAX_REALTIME_STREAM_PACKET_SIZE, self.logger)
+end
+
+
+local function createSecondaryClientStream(self)
+  local function readVersionMessage(reader)
+    local project_name_length = reader:readUInt8()
+
+    local name_offset = reader.offset
+    reader:setOffset(name_offset + project_name_length)
+    local project_name = ffi.string(reader.data + name_offset, project_name_length)
+
+    local major = reader:readUInt8()
+    local minor = reader:readUInt8()
+    local revision = reader:readInt32()
+
+    self.robot_version = {
+      major, minor, revision, project_name,
+      major = major,
+      minor = minor,
+      revision = revision,
+      project_name
+    }
+
+    self.logger.info("Robot version: %s %d.%d rev. %d", project_name, major, minor, revision)
+  end
+
+  local function readRobotMessage(reader)
+    local timestamp = reader:readUInt64()
+    local source = reader:readUInt8()
+    local robotMessageType = reader:readUInt8()
+    if robotMessageType == 3 then
+      readVersionMessage(reader)
+    end
+  end
+
+  local function handleClientInterfacePacket(reader)
+    local message_size = reader:readUInt32()
+    local message_type = reader:readUInt8()
+    if message_type == 20 then
+      readRobotMessage(reader)
+    end
+  end
+  self.secondaryClientStream = URStream(handleClientInterfacePacket, MAX_CLIENT_INTERFACE_PACKET_SIZE, self.logger)
+end
+
+
 function URDriver:__init(cfg, logger, heartbeat)
   self.logger = logger or ur5.DEFAULT_LOGGER
   self.heartbeat = heartbeat
@@ -64,8 +140,8 @@ function URDriver:__init(cfg, logger, heartbeat)
   -- apply configuration
   self.hostname = cfg.hostname or DEFAULT_HOSTNAME
   self.realtimePort = cfg.realtimePort or DEFAULT_REALTIME_PORT
-  self.reversename = cfg.reversename or DEFAULT_REVERSENAME
-  self.reverserealtimePort = cfg.reverserealtimePort or DEFAULT_REVERSE_REALTIME_PORT
+  self.reverseName = cfg.reverseName or DEFAULT_REVERSENAME
+  self.reversePort = cfg.reversePort or DEFAULT_REVERSE_PORT
   self.lookahead = cfg.lookahead or DEFAULT_LOOKAHEAD
   self.gain = cfg.gain or DEFAULT_GAIN
   self.servoTime = cfg.servoTime or DEFAULT_SERVO_TIME
@@ -78,21 +154,11 @@ function URDriver:__init(cfg, logger, heartbeat)
   self.goalPositionThreshold = cfg.goalPositionThreshold or DEFAULT_GOAL_CONVERGENCE_POSITION_THRESHOLD
   self.goalVelocityThreshold = cfg.goalVelocityThreshold or DEFAULT_GOAL_CONVERGENCE_VELOCITY_THRESHOLD
 
-  -- read script template
-  local scriptFilename = cfg.scriptTemplateFilename or DEFAULT_SCRIPT_TEMPLATE_FILENAME
-  local f = assert(io.open(scriptFilename, "r"))
-  self.scriptTemplate = f:read("*all")
-  f:close()
+  self.realtimeState = RealtimeState()
 
-  if (cfg.useCb2 == true) then
-    print('[URDriver] using CB2 controller')
-    self.realtimeState = RealtimeStateCB2()
-  else
-    print('[URDriver] using CB3 controller')
-    self.realtimeState = RealtimeState()
-  end
+  createSecondaryClientStream(self)   -- get robot version info
+  createRealtimeStream(self)          -- get robot mode and joint details
 
-  self.realtimeStream = RealtimeStream(self.realtimeState, self.logger)
   self.syncCallbacks = {}
   self.trajectoryQueue = {}      -- list of pending trajectories
 end
@@ -212,7 +278,11 @@ end
 
 
 function URDriver:poll()
-  if self.realtimeStream:getState() ~= RealtimeStreamState.Connected then
+  if self.secondaryClientStream:getState() == URStreamState.Connected then
+    self.secondaryClientStream:read()
+  end
+
+  if self.realtimeStream:getState() ~= URStreamState.Connected then
     return nil, '[URDriver] Realtime stream not connected.'
   end
 
@@ -255,6 +325,10 @@ local function establishReverseConnection(self)
     error('[URDriver] Reverse listener not ready.')
   end
 
+  if self.robot_version == nil then
+    error('[URDriver] Robot version unknown')
+  end
+
   local function fillTemplate(urscript_template, variables)
     local s = urscript_template
     for k,v in pairs(variables) do
@@ -270,7 +344,7 @@ local function establishReverseConnection(self)
   local ip, port = self.reverseListener:getsockname()
 
   local variables = {
-    IP            = self.reversename or ip,
+    IP            = self.reverseName or ip,
     Port          = port,
     ServoTime     = self.servoTime,
     LookAhead     = self.lookahead,
@@ -280,7 +354,8 @@ local function establishReverseConnection(self)
     RingZeros     = generateZeros(self.ringSize * 7)
   }
 
-  local s = fillTemplate(self.scriptTemplate, variables)
+  local scriptTemplate = loadScriptTemplate(self)
+  local s = fillTemplate(scriptTemplate, variables)
   local ok, err = self.realtimeStream:send(s)
   if not ok then
     error('[URDriver] Sending driver script failed: ' .. err)
@@ -519,10 +594,17 @@ function URDriver:spin()
     self.heartbeat:updateStatus(self.heartbeat.INTERNAL_ERROR, "Robot is not ready.")
   end
 
-  if self.realtimeStream:getState() == RealtimeStreamState.Disconnected then
+  if self.secondaryClientStream:getState() == URStreamState.Disconnected then
+    self.logger.info('SecondaryClient not connected, trying to connect...')
+    if self.secondaryClientStream:connect(self.hostname, SECONDARY_CLIENT_PORT) then
+      self.logger.info('SecondaryClient connected.')
+    end
+  end
+
+  if self.realtimeStream:getState() == URStreamState.Disconnected then
     self.logger.info('RealtimeStream not connected, trying to connect...')
     if self.realtimeStream:connect(self.hostname, self.realtimePort) then
-      self.logger.info('Connected.')
+      self.logger.info('RealtimeStream connected.')
 
       -- create and bind socket to accept reverse connections
       local reverseListener = socket.tcp()
@@ -530,7 +612,7 @@ function URDriver:spin()
       if not clientIp then
         error('Could not get local IP address for reverse listener.')
       end
-      reverseListener:bind(clientIp, self.reverserealtimePort)
+      reverseListener:bind(clientIp, self.reversePort)
       reverseListener:listen(1)
       reverseListener:settimeout(2, 't')
       self.reverseListener = reverseListener
@@ -538,7 +620,7 @@ function URDriver:spin()
   end
 
   local ok, err = true, nil
-  if self.realtimeStream:getState() == RealtimeStreamState.Connected then
+  if self.realtimeStream:getState() == URStreamState.Connected then
 
     -- sync
     ok, err = pcall(function() driverCore(self) end)
@@ -555,7 +637,14 @@ function URDriver:spin()
     ]]
   end
 
-  if not ok or self.realtimeStream:getState() == RealtimeStreamState.Error or
+  if self.secondaryClientStream:getState() == URStreamState.Error then
+    self.robot_version = nil
+    self.realtimeState:invalidate()
+    self.secondaryClientStream:close()
+    createSecondaryClientStream(self)
+  end
+
+  if not ok or self.realtimeStream:getState() == URStreamState.Error or
     (self.reverseConnection ~= nil and self.reverseConnection.error) then
 
     -- abort current trajectory
@@ -586,7 +675,8 @@ function URDriver:spin()
 
     self.realtimeStream:close()
     self.realtimeState:invalidate()
-    self.realtimeStream = RealtimeStream(self.realtimeState)
+
+    self.realtimeStream = URStream(self.realtimeStream.packet_handler_fn, 1060, self.logger)
   end
 
 end
@@ -594,4 +684,5 @@ end
 
 function URDriver:shutdown()
   self.realtimeStream:close()
+  self.secondaryClientStream:close()
 end

@@ -1,4 +1,4 @@
-# Copyright 2016 Andreas Koepf, Xamla/PROVISIO GmbH
+# Copyright 2018 Andreas Koepf, Xamla/PROVISIO GmbH
 # All rights reserved.
 
 
@@ -19,12 +19,12 @@ def driver_proc():
     if write_pos >= read_pos:
       return write_pos - read_pos
     else:
-      return RING_SIZE - read_pos + write_pos
+      return RING_SIZE + write_pos - read_pos
     end
   end
 
   def ring_avail():
-    return RING_SIZE - ring_count() - 1
+    return (RING_SIZE - 1) - ring_count()
   end
 
   def ring_add(l):
@@ -166,6 +166,7 @@ def driver_proc():
       ring_clear()
       exit_critical
     elif b > 0:
+
       while b > 0:
         qraw = socket_read_binary_integer(7, "remote")  # multiplied joint values + checksum
         if qraw[0] != 7:

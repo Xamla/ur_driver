@@ -120,4 +120,32 @@ ur5.DEFAULT_LOGGER = {
 }
 
 
+function ur5.findIndex(t, condition)
+  for i,v in ipairs(t) do
+    if condition(v, i) then
+      return i
+    end
+  end
+  return -1
+end
+
+
+function ur5.copyMapped(dst, src, map)
+  for k,v in pairs(map) do
+    dst[k] = src[v]
+  end
+end
+
+
+function ur5.indexOf(t, v)
+  for i=1,#t do
+    if t[i] == v then
+      return i
+    end
+  end
+  return -1
+end
+
+
+
 return ur5

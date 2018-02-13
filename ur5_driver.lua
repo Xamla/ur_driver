@@ -7,7 +7,9 @@ require 'ros.actionlib.ActionServer'
 local GoalStatus = require 'ros.actionlib.GoalStatus'
 local actionlib = ros.actionlib
 local ur5 = require 'ur5_env'
+local findIndex, copyMapped, indexOf  = ur5.findIndex, ur5.copyMapped, ur5.indexOf
 local xamal_sysmon = require 'xamla_sysmon'
+
 
 local nh                        -- ros node handle
 local jointStatePublisher       -- joint state publisher
@@ -20,7 +22,7 @@ local posTrajControllerCommandSub   -- open loop position based trajectory contr
 local currentPosTraj                -- active trajectory of pos traj controller
 
 
--- http://docs.ros.org/fuerte/api/control_msgs/html/msg/FollowJointTrajectoryResult.html
+-- see http://docs.ros.org/api/control_msgs/html/action/FollowJointTrajectory.html
 local TrajectoryResultStatus = {
   SUCCESSFUL = 0,
   INVALID_GOAL = -1,
@@ -51,27 +53,7 @@ local function publishJointStates(driver)
 end
 
 
-local function findIndex(t, condition)
-  for i,v in ipairs(t) do
-    if condition(v, i) then
-      return i
-    end
-  end
-  return -1
-end
-
-
-local function copyMapped(dst, src, map)
-  for k,v in pairs(map) do
-    dst[k] = src[v]
-  end
-end
-
-
 local function decodeJointTrajectoryMsg(trajectory)
-  -- print('trajectory_msg')
-  -- print(trajectory)
-
   -- get joint names and create mapping
   local jointMapping = {}
   for i,name in ipairs(trajectory.joint_names) do
@@ -110,20 +92,6 @@ local function decodeJointTrajectoryMsg(trajectory)
   if not hasAcceleration then
     acc = nil
   end
-
-  --[[
-  print('current joint configuration (q_actual):')
-  print(driver:getRealtimeState().q_actual)
-
-  print('time:')
-  print(time)
-
-  print('pos:')
-  print(pos)
-
-  print('vel:')
-  print(vel)
-  ]]
 
   return time, pos, vel, acc
 end
@@ -236,16 +204,6 @@ local function FollowJointTrajectory_Cancel(goalHandle)
 end
 
 
-local function indexOf(t, v)
-  for i=1,#t do
-    if t[i] == v then
-      return i
-    end
-  end
-  return -1
-end
-
-
 local function posTrajController_Command(msg, header, subscriber)
   -- msg is trajectory_msgs/JointTrajectory, see http://docs.ros.org/kinetic/api/trajectory_msgs/html/msg/JointTrajectory.html
 
@@ -311,14 +269,6 @@ local function posTrajController_Command(msg, header, subscriber)
 end
 
 
-local function startPosTrajControllerListener(controllerName)
-  --local commandTopic = string.format('%s/joint_command', controllerName)
-  local commandTopic = 'joint_command'
-  posTrajControllerCommandSub = nh:subscribe(commandTopic, 'trajectory_msgs/JointTrajectory', 1)
-  posTrajControllerCommandSub:registerCallback(posTrajController_Command)
-end
-
-
 local function printSplash()
   print([[
    _  __                __
@@ -352,21 +302,18 @@ local function main()
   cmd:text()
   cmd:option('-hostname',              'ur5',              'hostname of robot to connect to')
   cmd:option('-realtime-port',         30003,              'realtime port')
-  cmd:option('-reversename',              '',              'servername. Robot connect to localhost')
-  cmd:option('-reverse-realtime-port',     0,              'realtime port')
+  cmd:option('-reverse-name',             '',              'Hostname used in URScript to connect to this driver')
+  cmd:option('-reverse-port',              0,              'Port on which this driver is listening for reversve connections')
   cmd:option('-lookahead',              0.01,              'lookahead time (in ms) for servoj')
   cmd:option('-gain',                   1200,              'gain parameter for servoj')
   cmd:option('-servo-time',            0.008,              'servo time (in ms) for servoj')
   cmd:option('-path-tolerance', math.pi / 10,              'max set point distance to current joint configuration')
   cmd:option('-ring-size',                64,              'robot side ring buffer ring-size')
-  cmd:option('-script-template',    'driverCB3.urscript',  'filename of urscript template executed on robot')
   cmd:option('-max-idle-cycles',         250,              'number of idle cycles before driver_proc shutdown')
-  cmd:option('-controller-name',       'ur5',              'emulation of ROS position controller')
   cmd:option('-joint-name-prefix',        '',              'name prefix of published joints')
   cmd:option('-max-convergence-cycles',  150,              'max number of cycles to wait for goal convergence')
   cmd:option('-goal-position-threshold', 0.005,            'goal convergence position threshold (in rad)')
   cmd:option('-goal-velocity-threshold', 0.01,             'goal convergence velocity threshold (in rad/s)')
-  cmd:option('-use-cb2', false, 'Use CB2 controller instead of CB3')
   local opt = cmd:parse(arg or {})
 
   -- ros initialization
@@ -381,34 +328,23 @@ local function main()
     error = ros.ERROR
   }
 
-  local controllerName, ok = nh:getParamString('controller_name')
-  if (ok == false) then
-    controllerName = opt['controller-name']
-  end
-
-  if opt['controller-name'] and #opt['controller-name'] > 0 then
-    startPosTrajControllerListener(opt['controller-name'])
-  end
-
   -- create driver object
   local driverConfiguration = {
     hostname                = opt['hostname'],
     realtimePort            = opt['realtime-port'],
-    reversename             = opt['reversename'],
-    reverserealtimePort     = opt['reverse-realtime-port'],
+    reverseName             = opt['reverse-name'],
+    reversePort             = opt['reverse-port'],
     lookahead               = opt['lookahead'],
     servoTime               = opt['servo-time'],
     gain                    = opt['gain'],
     pathTolerance           = opt['path-tolerance'],
     ringSize                = opt['ring-size'],
-    scriptTemplateFilename  = opt['script-template'],
     maxIdleCycles           = opt['max-idle-cycles'],
     maxSinglePointTrajectoryDistance = opt['max-single-point-trajectory-distance'],
     maxConvergenceCycles    = opt['max-convergence-cycles'],
     goalPositionThreshold   = opt['goal-position-threshold'],
     goalVelocityThreshold   = opt['goal-velocity-threshold'],
-    jointNamePrefix         = opt['joint-name-prefix'],
-    useCb2                  = opt['use-cb2']
+    jointNamePrefix         = opt['joint-name-prefix']
   }
 
   local overrideInputArguments = function (key, value, ok)
@@ -419,23 +355,21 @@ local function main()
 
   overrideInputArguments('hostname', nh:getParamString('hostname'))
   overrideInputArguments('realtimePort', nh:getParamInt('realtime_port'))
-  overrideInputArguments('reversename', nh:getParamString('reversename'))
-  overrideInputArguments('reverserealtimePort', nh:getParamInt('reverse_realtime_port'))
+  overrideInputArguments('reverseName', nh:getParamString('reverse_name'))
+  overrideInputArguments('reversePort', nh:getParamInt('reverse_port'))
   overrideInputArguments('lookahead', nh:getParamDouble('lookahead'))
   overrideInputArguments('servoTime', nh:getParamDouble('servo_time'))
   overrideInputArguments('gain', nh:getParamDouble('gain'))
   overrideInputArguments('pathTolerance', nh:getParamDouble('path_tolerance'))
   overrideInputArguments('ringSize', nh:getParamInt('ring_size'))
-  overrideInputArguments('scriptTemplateFilename', nh:getParamString('script_template'))
   overrideInputArguments('maxIdleCycles', nh:getParamInt('max_idle_cycles'))
   overrideInputArguments('maxSinglePointTrajectoryDistance', nh:getParamDouble('max_single_point_trajectory_distance'))
   overrideInputArguments('maxConvergenceCycles', nh:getParamInt('max_convergence_cycles'))
   overrideInputArguments('goalPositionThreshold', nh:getParamDouble('goal_position_threshold'))
   overrideInputArguments('goalVelocityThreshold', nh:getParamDouble('goal_velocity_threshold'))
   overrideInputArguments('jointNamePrefix', nh:getParamString('joint_name_prefix'))
-  overrideInputArguments('useCb2', nh:getParamBool('use_cb2'))
 
-  if driverConfiguration['reversename'] == '' then driverConfiguration['reversename'] = nil end
+  if driverConfiguration['reverseName'] == '' then driverConfiguration['reverseName'] = nil end
 
   -- create joint state publisher
   jointNames = createJointNames(driverConfiguration.jointNamePrefix)
@@ -459,6 +393,9 @@ local function main()
   followTrajectoryServer:registerCancelCallback(FollowJointTrajectory_Cancel)
   followTrajectoryServer:start()
 
+  posTrajControllerCommandSub = nh:subscribe('joint_command', 'trajectory_msgs/JointTrajectory', 1)
+  posTrajControllerCommandSub:registerCallback(posTrajController_Command)
+
   -- main driver loop
   local rate = ros.Rate(250)
   while ros.ok() do
@@ -470,10 +407,7 @@ local function main()
   end
 
   -- tear down components
-  if posTrajControllerCommandSub ~= nil then
-    posTrajControllerCommandSub:shutdown()
-  end
-
+  posTrajControllerCommandSub:shutdown()
   jointStatePublisher:shutdown()
   followTrajectoryServer:shutdown()
   driver:shutdown()

@@ -5,12 +5,10 @@ local convertToBigEndianReader = require 'BigEndianAdapter'
 local ur5 = require 'ur5_env'
 
 
-local RealtimeStream = torch.class('RealtimeStream')
+local URStream = torch.class('URStream')
 
 
-local DEFAULT_REALTIME_PORT = 30003
 local STASH_SIZE = 2048
-local MAX_PACKAGE_SIZE = 1060
 local HEADER_SIZE = 4
 local CONNECT_TIMEOUT = 1.0
 local RECONNECT_WAIT = 0.1
@@ -18,12 +16,12 @@ local READ_TIMEOUT = 0.004
 local RECEIVE_BUFFER_SIZE = 4096
 
 
-local RealtimeStreamState = {
+local URStreamState = {
   Disconnected = 1,
   Connected = 2,
   Error = 3
 }
-ur5.RealtimeStreamState = RealtimeStreamState
+ur5.URStreamState = URStreamState
 
 
 local ReadState = {
@@ -33,9 +31,9 @@ local ReadState = {
 }
 
 
---- realtimeState is target that receives state updates
-function RealtimeStream:__init(realtimeState, logger)
-  self.realtimeState = realtimeState
+function URStream:__init(packet_handler_fn, max_package_size, logger)
+  self.packet_handler_fn = packet_handler_fn
+  self.max_package_size = max_package_size
   self.logger = logger or ur5.DEFAULT_LOGGER
   self.stash_offset = 0
   self.stash = torch.ByteTensor(STASH_SIZE)
@@ -44,14 +42,14 @@ function RealtimeStream:__init(realtimeState, logger)
   self:resetStash()
   self.client = socket.tcp()
   self.client:setoption('tcp-nodelay', true)
-  self.state = RealtimeStreamState.Disconnected
+  self.state = URStreamState.Disconnected
   self.readTimeouts = 0
 end
 
 
-function RealtimeStream:connect(hostname, port)
+function URStream:connect(hostname, port)
   self.client:settimeout(CONNECT_TIMEOUT)
-  local ok, err = self.client:connect(hostname, port or DEFAULT_REALTIME_PORT)
+  local ok, err = self.client:connect(hostname, port)
   if not ok then
     self.logger.error('Connecting failed, error: ' .. err)
     self.client:close()
@@ -60,25 +58,25 @@ function RealtimeStream:connect(hostname, port)
     return false
   end
   self.client:settimeout(READ_TIMEOUT, 't')
-  self.state = RealtimeStreamState.Connected
+  self.state = URStreamState.Connected
   self.readTimeouts = 0
   return true
 end
 
 
-function RealtimeStream:getState()
+function URStream:getState()
   return self.state
 end
 
 
-function RealtimeStream:getSocket()
+function URStream:getSocket()
   return self.client
 end
 
 
-function RealtimeStream:close(abortive)
+function URStream:close(abortive)
   if self.client ~= nil then
-    if self.state == RealtimeStreamState.Connected then
+    if self.state == URStreamState.Connected then
       self.client:shutdown('send')
       if abortive then
         self.client:setoption('linger', { on = true, timeout = 0 })
@@ -110,30 +108,30 @@ local function processReceivedBlock(self, block)
 
     if self.stream_state == ReadState.HEADER then
       local len = r:readUInt32()
-      if len <= MAX_PACKAGE_SIZE then
+      if len <= self.max_package_size then
         self.stream_state = ReadState.PAYLOAD
         self.remaining_bytes = len - 4
       else
-        self.logger.error('[RealtimeStream] Received realtime package has invalid size.')
+        self.logger.error('[URStream] Received package has invalid size: %d', len)
         self.stream_state = ReadState.ERROR
         return false
       end
     elseif self.stream_state == ReadState.PAYLOAD then
       local payload_reader = ros.StorageReader(self.stash:storage())
       convertToBigEndianReader(payload_reader)
-      self.realtimeState:read(payload_reader)
+      self.packet_handler_fn(payload_reader)
       self:resetStash()
       updated = true
     else
-      error('[RealtimeStream] Unexpected read state.')   -- should never happen
+      error('[URStream] Unexpected read state.')   -- should never happen
     end
   end
   return updated
 end
 
 
-function RealtimeStream:read()
-  if self.state ~= RealtimeStreamState.Connected then
+function URStream:read()
+  if self.state ~= URStreamState.Connected then
     return false
   end
 
@@ -142,8 +140,8 @@ function RealtimeStream:read()
     r = p
   end
   if not r then
-    self.logger.error('[RealtimeStream] Receive failure: ' .. e)
-    self.state = RealtimeStreamState.Error
+    self.logger.error('[URStream] Receive failure: ' .. e)
+    self.state = URStreamState.Error
     return false
   end
 
@@ -151,7 +149,7 @@ function RealtimeStream:read()
   if #r > 0 then
     updated = processReceivedBlock(self, r)
     if self.stream_state == ReadState.ERROR then
-      self.state = RealtimeStreamState.Error
+      self.state = URStreamState.Error
       return false
     end
   end
@@ -164,7 +162,7 @@ function RealtimeStream:read()
 end
 
 
-function RealtimeStream:resetStash()
+function URStream:resetStash()
   self.stream_state = ReadState.HEADER
   self.remaining_bytes = HEADER_SIZE
   self.stash:fill(0)
@@ -173,6 +171,6 @@ function RealtimeStream:resetStash()
 end
 
 
-function RealtimeStream:send(msg)
+function URStream:send(msg)
   return self.client:send(msg)
 end
