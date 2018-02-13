@@ -301,7 +301,6 @@ local function main()
   cmd:text('Xamla Rosvita driver for Universal Robots (UR3/UR5/UR10)')
   cmd:text()
   cmd:option('-hostname',              'ur5',              'hostname of robot to connect to')
-  cmd:option('-realtime-port',         30003,              'realtime port')
   cmd:option('-reverse-name',             '',              'Hostname used in URScript to connect to this driver')
   cmd:option('-reverse-port',              0,              'Port on which this driver is listening for reversve connections')
   cmd:option('-lookahead',              0.01,              'lookahead time (in ms) for servoj')
@@ -331,7 +330,6 @@ local function main()
   -- create driver object
   local driverConfiguration = {
     hostname                = opt['hostname'],
-    realtimePort            = opt['realtime-port'],
     reverseName             = opt['reverse-name'],
     reversePort             = opt['reverse-port'],
     lookahead               = opt['lookahead'],
@@ -354,7 +352,6 @@ local function main()
   end
 
   overrideInputArguments('hostname', nh:getParamString('hostname'))
-  overrideInputArguments('realtimePort', nh:getParamInt('realtime_port'))
   overrideInputArguments('reverseName', nh:getParamString('reverse_name'))
   overrideInputArguments('reversePort', nh:getParamInt('reverse_port'))
   overrideInputArguments('lookahead', nh:getParamDouble('lookahead'))

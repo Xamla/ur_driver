@@ -20,7 +20,7 @@ local DEFAULT_MAX_IDLE_CYCLES = 250      -- number of idle sync-cyles before rev
 local DEFAULT_HOSTNAME = 'ur5'
 local PRIMARY_CLIENT_PORT = 30001
 local SECONDARY_CLIENT_PORT = 30002
-local DEFAULT_REALTIME_PORT = 30003
+local REALTIME_PORT = 30003
 local DEFAULT_REVERSENAME = nil
 local DEFAULT_REVERSE_PORT = 0
 local DEFAULT_RING_SIZE = 64
@@ -199,7 +199,6 @@ function URDriver:__init(cfg, logger, heartbeat)
 
   -- apply configuration
   self.hostname = cfg.hostname or DEFAULT_HOSTNAME
-  self.realtimePort = cfg.realtimePort or DEFAULT_REALTIME_PORT
   self.reverseName = cfg.reverseName or DEFAULT_REVERSENAME
   self.reversePort = cfg.reversePort or DEFAULT_REVERSE_PORT
   self.lookahead = cfg.lookahead or DEFAULT_LOOKAHEAD
@@ -708,7 +707,7 @@ function URDriver:spin()
 
   if self.realtimeStream:getState() == URStreamState.Disconnected then
     self.logger.info('RealtimeStream not connected, trying to connect...')
-    if self.realtimeStream:connect(self.hostname, self.realtimePort) then
+    if self.realtimeStream:connect(self.hostname, REALTIME_PORT) then
       self.logger.info('RealtimeStream connected.')
 
       -- create and bind socket to accept reverse connections
