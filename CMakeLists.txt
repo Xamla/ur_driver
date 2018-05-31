@@ -9,7 +9,8 @@ find_package(catkin REQUIRED COMPONENTS
 catkin_package()
 
 # Copy lua files
-install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+install(DIRECTORY ./
    DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
    FILES_MATCHING PATTERN "*.lua"
+   PATTERN "launch" EXCLUDE
 )
